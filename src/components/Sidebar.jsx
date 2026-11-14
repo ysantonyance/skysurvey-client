@@ -206,7 +206,8 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
 
                 <Checkbox label="Invert base image" checked={view.invert} onChange={(e) => onViewChange({ invert: e.target.checked })} />
 
-                <Action icon={<RefreshCw size={16} />} className="w-full text-xs! bg-[#C79AFF]! text-black!"
+                <Action icon={<RefreshCw size={16} />}
+                        className="w-full text-xs! bg-[#C79AFF]! hover:bg-accent/90! text-black!"
                         onClick={() => onViewChange({ cut: null, softness: 0.1, stretch: "asinh", invert: false })}>
                     Reset contrast · Auto
                 </Action>

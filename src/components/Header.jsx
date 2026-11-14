@@ -1,4 +1,4 @@
-import { Orbit, Link2 } from "lucide-react";
+import {Link2 } from "lucide-react";
 import { Action } from "./Action.jsx";
 import logo from "../assets/logo.svg";
 
@@ -12,13 +12,13 @@ export function Header() {
                 <span className="hidden text-xs text-muted sm:block">Sky &amp; spectrum workspace</span>
             </div>
 
-            <div className="flex items-center gap-3">
-                <Action
-                    icon={<Link2 size={16} />}
-                    className="border-accent/40! bg-accent/10! hover:bg-accent/20!">
-                    Share
-                </Action>
-            </div>
+            {/*<div className="flex items-center gap-3">*/}
+            {/*    <Action*/}
+            {/*        icon={<Link2 size={16} />}*/}
+            {/*        className="border-accent/40! bg-accent/10! hover:bg-accent/20!">*/}
+            {/*        Share*/}
+            {/*    </Action>*/}
+            {/*</div>*/}
         </header>
     );
 }

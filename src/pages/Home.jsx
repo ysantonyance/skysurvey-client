@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
+import {Select} from "../components/Select.jsx";
 
 const API = "http://127.0.0.1:8000";
 
@@ -21,6 +22,13 @@ const DEFAULT_VIEW = {
     opacity: 50,
     stretch: "asinh", cut: null, softness: 0.1, // cut: null = авто
     invert: false,
+};
+
+const CLASS_LABEL = {
+    known_star: "Known star",
+    candidate: "Candidate",
+    no_detection: "No detection",
+    unknown: "Unknown",
 };
 
 function Badge({ children }) {
@@ -199,6 +207,7 @@ function Home() {
     const H = disp?.height ?? 512;
     const crosshairR = disp ? 10 / disp.pixel_scale_arcsec : 14; // радіус 10″ у пікселях PNG
     const gaiaSources = frameData?.crossmatch?.overlay ?? [];
+    const cm = frameData?.crossmatch;
     const anomalies = frameData?.difference?.anomalies ?? [];
     const minorPlanets = epoch?.known_minor_planets ?? [];
 
@@ -374,14 +383,22 @@ function Home() {
                             <h1 className="text-base">Sky position &amp; spectrum</h1>
                             <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
                         </div>
-                        <p className="text-xs text-muted">Sample dates, catalog and measurements</p>
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
                         <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
                             <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
-                                <p>Demo · Candidate · No counterpart in sample Gaia DR3 catalog</p>
-                                <p className="mt-2 text-muted">IR signal · SNR 5.9σ</p>
+                                {cm ? (
+                                    <>
+                                        <p>{CLASS_LABEL[cm.classification] ?? cm.classification} · {cm.reason}</p>
+                                        <p className="mt-2 text-muted">
+                                            IR signal · {cm.spherex_snr != null ? `SNR ${cm.spherex_snr.toFixed(1)}σ` : "SNR n/a"}
+                                            {cm.wise_match?.w1_w2_color != null && ` · W1−W2 ${cm.wise_match.w1_w2_color.toFixed(2)} mag`}
+                                        </p>
+                                    </>
+                                ) : (
+                                    <p className="text-muted">Loading catalog match…</p>
+                                )}
                             </div>
 
                             <div role="tablist" className="flex gap-1 text-xs">
@@ -531,15 +548,17 @@ function Home() {
                                         </svg>
                                     </button>
 
-                                    <select
-                                        defaultValue="100ms"
-                                        onChange={handleSpeedChange}
-                                        className="bg-bg text-text border border-border h-10 px-3 text-xs rounded-sm focus:outline-none cursor-pointer"
-                                    >
-                                        <option value="50ms">50ms</option>
-                                        <option value="100ms">100ms</option>
-                                        <option value="500ms">500ms</option>
-                                    </select>
+                                    <Select
+                                        ariaLabel="Playback speed"
+                                        className="w-24"
+                                        value={String(intervalMs)}
+                                        onValueChange={(v) => setIntervalMs(Number(v))}
+                                        options={[
+                                            { value: "50",  label: "50 ms" },
+                                            { value: "100", label: "100 ms" },
+                                            { value: "500", label: "500 ms" },
+                                        ]}
+                                    />
                                 </div>
 
                                 <div className="text-right text-xs">

@@ -4,7 +4,8 @@ import { useId } from "react";
 
 export function Select({
                            label,
-                           options,          // [{ value: "0.10", label: "0.10° · Standard" }]
+                           ariaLabel,
+                           options,
                            value,
                            defaultValue,
                            onValueChange,
@@ -29,6 +30,7 @@ export function Select({
             >
                 <RadixSelect.Trigger
                     id={id}
+                    aria-label={label ? undefined : ariaLabel}
                     className={[
                         "flex h-10 w-full items-center justify-between gap-2",
                         "rounded-sm border border-border bg-bg px-3",
