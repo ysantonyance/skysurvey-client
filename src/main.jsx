@@ -1,17 +1,21 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import './index.css'
-import App from "./App.jsx";
+import './styles/tokens.css';
+import App from './App.jsx';
 
 async function enableMocking() {
     if (import.meta.env.VITE_USE_MOCK !== 'true') {
         return;
     }
-    const { worker } = await import('./mocks/browser');
-    return worker.start();
+    try {
+        const { worker } = await import('./mocks/browser');
+        await worker.start({ onUnhandledRequest: 'bypass' });
+    } catch (err) {
+        console.warn('MSW не запустився:', err);
+    }
 }
 
-enableMocking().then(() => {
+enableMocking().finally(() => {
     createRoot(document.getElementById('root')).render(
         <React.StrictMode>
             <App />

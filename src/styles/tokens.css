@@ -1,0 +1,63 @@
+@import "tailwindcss";
+@import "@fontsource/russo-one/400.css";
+@import "@fontsource/funnel-display/400.css";
+@import "@fontsource/funnel-display/500.css";
+@import "@fontsource/funnel-display/600.css";
+
+@theme {
+    --color-*: initial;
+    --text-*: initial;
+    --radius-*: initial;
+    --shadow-*: initial;
+    --drop-shadow-*: initial;
+    --font-*: initial;
+
+    --color-bg: #070609;
+    --color-surface: #0d0a12;
+    --color-raised: #17111f;
+    --color-text: #eeeaf3;
+    --color-muted: #aca3b7;
+    --color-accent: #ad96c5;
+    --color-success: #aed6b8;
+    --color-warning: #e7c58b;
+    --color-error: #f0a5b4;
+    --color-border: #5E3489;
+    --color-transparent: transparent;
+
+    --text-xs: 12px;
+    --text-base: 16px;
+    --text-2xl: 24px;
+    --text-4xl: 36px;
+    --text-6xl: 56px;
+
+    --spacing: 4px;
+
+    --radius-sm: 4px;
+    --radius-md: 8px;
+
+    --font-heading: "Russo One", system-ui, sans-serif;
+    --font-ui: "Funnel Display", system-ui, sans-serif;
+
+    --ease-ds: cubic-bezier(0.2, 0, 0, 1);
+    --dur-hover: 80ms;
+    --dur-state: 200ms;
+}
+
+
+@layer base {
+    html { background: var(--color-bg); color: var(--color-text); font-family: var(--font-ui); }
+    h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: 400; }
+    svg.lucide { stroke-width: 1.75; }
+}
+
+@utility transition-hover {
+    transition: background-color var(--dur-hover) var(--ease-ds),
+    border-color var(--dur-hover) var(--ease-ds),
+    color var(--dur-hover) var(--ease-ds);
+}
+@utility transition-state {
+    transition: opacity var(--dur-state) var(--ease-ds),
+    outline-color var(--dur-state) var(--ease-ds),
+    border-color var(--dur-state) var(--ease-ds),
+    background-color var(--dur-state) var(--ease-ds);
+}
