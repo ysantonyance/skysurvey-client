@@ -8,6 +8,7 @@ export function CoordinateInput({
                                     loadingHint,    // підказка під полем у стані loading
                                     disabled = false,
                                     className = "",
+                                    inputClassName = "",
                                     ...rest
                                 }) {
     const id = useId();
@@ -15,8 +16,8 @@ export function CoordinateInput({
     const message = error ?? (loading ? loadingHint ?? hint : hint);
 
     const lineColor = error
-        ? "border-b-error"
-        : "border-b-accent placeholder-shown:border-b-border";
+        ? "border-error"
+        : "border-accent/50 placeholder-shown:border-b-border";
 
     return (
         <div className={`flex flex-col gap-1 ${className}`}>
@@ -33,7 +34,7 @@ export function CoordinateInput({
                 aria-busy={loading || undefined}
                 aria-describedby={message ? msgId : undefined}
                 className={[
-                    "h-10 w-full rounded-sm border-0 border-b-2 bg-surface px-3",
+                    "h-10 w-full rounded-sm border bg-bg px-3",
                     "font-ui text-base text-text outline-none",
                     "placeholder:text-muted/60",
                     "transition-hover transition-state",
@@ -46,6 +47,7 @@ export function CoordinateInput({
                     loading ? "cursor-progress" : "",
                     // disabled
                     "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface",
+                    inputClassName,
                 ].join(" ")}
             />
 
