@@ -16,13 +16,17 @@
     --color-surface: #0d0a12;
     --color-raised: #17111f;
     --color-text: #eeeaf3;
-    --color-muted: #aca3b7;
+    --color-muted: #baaccb;
     --color-accent: #ad96c5;
     --color-success: #aed6b8;
     --color-warning: #e7c58b;
     --color-error: #f0a5b4;
-    --color-border: #5E3489;
+    --color-border: #362A46;
     --color-transparent: transparent;
+
+    --color-header: #110D19;
+
+    --tracking-ds: 0.04em;
 
     --text-xs: 12px;
     --text-base: 16px;
@@ -45,8 +49,29 @@
 
 
 @layer base {
-    html { background: var(--color-bg); color: var(--color-text); font-family: var(--font-ui); }
-    h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: 400; }
+    * {
+        scrollbar-width: none;
+    }
+    *::-webkit-scrollbar {
+        display: none;
+    }
+    html {
+        background: var(--color-bg);
+        color: var(--color-text);
+        font-family: var(--font-ui, sans-serif);
+        letter-spacing: var(--tracking-ds);
+    }
+    body {
+        scrollbar-width: none;
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+        display: none;
+    }
+    h1, h2, h3, h4 {
+        font-family: var(--font-heading, sans-serif);
+        font-weight: 400;
+    }
     svg.lucide { stroke-width: 1.75; }
 }
 
