@@ -20,6 +20,18 @@ function Badge({ children }) {
     );
 }
 
+const PRESETS = [
+    { label: "WISE 0855", ra: "133.7951", dec: "-7.2451" },
+    { label: "248.18 +66.75", ra: "248.1795", dec: "66.7542" },
+    { label: "269.45 +4.74", ra: "269.4485", dec: "4.7394" },
+];
+
+const DEFAULT_VIEW = {
+    gaia: false, motion: false, defect: false, crosshair: true,
+    opacity: 50,
+    stretch: "asinh", cut: null, softness: 0.1, // cut: null = авто
+    invert: false,
+};
 // Пиксель на картинке (0..512) -> небесные координаты по WCS из display.wcs
 function pixelToRaDec(pixelX, pixelY, wcs) {
     const crval1 = Number(wcs.CRVAL1);
@@ -53,6 +65,41 @@ function Home() {
     const [hoveredPoint, setHoveredPoint] = useState(null);
     const [showBands, setShowBands] = useState(true);
 
+    const [form, setForm] = useState({ ra: "269.4485", dec: "4.7394", fov: "0.10", band: "all" });
+    const [query, setQuery] = useState(form);
+    const [error, setError] = useState(null);
+
+    const raNum = Number(form.ra);
+    const decNum = Number(form.dec);
+    const errors = {
+        ra: form.ra === "" || isNaN(raNum) || raNum < 0 || raNum >= 360 ? "Enter RA from 0° to under 360°." : null,
+        dec: form.dec === "" || isNaN(decNum) || decNum < -90 || decNum > 90 ? "Enter Dec from -90° to 90°." : null,
+    };
+    const canLoad = !errors.ra && !errors.dec && !loading;
+    const loadPreset = (p) => {
+        const next = { ...form, ra: p.ra, dec: p.dec, fov: "0.10", band: "all" };
+        setForm(next);
+        setQuery(next);
+    };
+
+    const [progress, setProgress] = useState(null);
+
+    const [view, setView] = useState(DEFAULT_VIEW);
+    const [stretched, setStretched] = useState(null); // base64-кадри після restretch
+    const onViewChange = (patch) => setView((v) => ({ ...v, ...patch }));
+
+    useEffect(() => {
+        const ctrl = new AbortController();
+        let timer;
+
+        setLoading(true);
+        setError(null);
+        setProgress({ stage: "Contacting archive…", percent: null });
+
+        const run = async () => {
+            try {
+                const params = new URLSearchParams({ ...query, sync: "false" });
+                const res = await fetch(`http://127.0.0.1:8000/api/v1/target?${params}`, { signal: ctrl.signal });
     // Выбранная кликом точка на картинке и её спектр
     const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
     const [pointData, setPointData] = useState(null);
@@ -64,24 +111,101 @@ function Home() {
         fetch(targetUrl(CENTER.ra, CENTER.dec))
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
-                return res.json();
-            })
-            .then((data) => {
-                setFrameData(data);
-                setLoading(false);
-            })
-            .catch((err) => {
-                console.error('Error loading data from backend:', err);
-                setLoading(false);
-            });
-    }, []);
+                const data = await res.json();
+                if (ctrl.signal.aborted) return;
+
+                if (data.progress) setProgress(data.progress);
+
+                if (data.status === "failed") throw new Error(data.error || "Processing failed");
+                if (data.status === "no_data") throw new Error("No SPHEREx data for this position");
+
+                if (data.status === "ready" || data.status === "partial") {
+                    setFrameData(data);
+                    setCurrentIndex(0);
+                    setIsPlaying(false);
+                    setLoading(false);          // знімок вже можна показувати
+                }
+
+                if (data.status === "processing" || data.status === "partial") {
+                    timer = setTimeout(run, data.poll_after_ms ?? 1500);
+                    return;                      // продовжуємо опитувати
+                }
+
+                setProgress(null);              // ready: бар можна сховати
+            } catch (err) {
+                if (err.name !== "AbortError") {
+                    setError(err.message);
+                    setLoading(false);
+                    setProgress(null);
+                }
+            }
+        };
+
+        run();
+        return () => { ctrl.abort(); clearTimeout(timer); };
+    }, [query]);
+
+    useEffect(() => {
+        setStretched(null);
+        setView((v) => ({ ...v, cut: null }));
+    }, [frameData?.target_key]);
+
+    useEffect(() => {
+        if (frameData?.status !== "ready") return;
+        const isAuto = view.cut === null && view.stretch === "asinh" && view.softness === 0.1;
+        if (isAuto) { setStretched(null); return; }
+
+        const ctrl = new AbortController();
+        const t = setTimeout(async () => {
+            try {
+                const res = await fetch("http://127.0.0.1:8000/api/v1/target/restretch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    signal: ctrl.signal,
+                    body: JSON.stringify({
+                        ra: frameData.ra, dec: frameData.dec, fov: frameData.fov, band: frameData.band,
+                        stretch_type: view.stretch,
+                        asinh_a: Math.max(view.softness, 0.01),
+                        min_cut: view.cut?.[0] ?? null,
+                        max_cut: view.cut?.[1] ?? null,
+                    }),
+                });
+                if (!res.ok) throw new Error(`restretch ${res.status}`);
+                const json = await res.json();
+                const byIndex = {};
+                json.epochs.forEach((e) => { byIndex[e.index] = e.image; });
+                setStretched(byIndex);
+            } catch (e) {
+                if (e.name !== "AbortError") console.error(e);
+            }
+        }, 300);
+
+        return () => { clearTimeout(t); ctrl.abort(); };
+    }, [view.stretch, view.cut, view.softness, frameData?.target_key, frameData?.status]);
 
     const frames = frameData?.epochs?.map(
         (epoch) => epoch.layers?.image
     ).filter(Boolean) || [];
 
     const totalFrames = frames.length;
+    const epoch = frameData?.epochs?.[currentIndex];
+    const layerUrl = {
+        "Science": epoch?.layers?.image,
+        "IR color": epoch?.layers?.rgb,
+        "Difference": frameData?.difference?.diff_image_url,
+        "Deep stack": frameData?.difference?.deep_stack_url,
+        "Noise": epoch?.layers?.variance,
+    }[tab];
+    const baseUrl = tab === "Science" && stretched?.[epoch?.index] ? stretched[epoch.index] : layerUrl;
     const preloadedImagesRef = useRef([]);
+
+    const disp = frameData?.display;
+    const W = disp?.width ?? 512;
+    const H = disp?.height ?? 512;
+    const crosshairR = disp ? 10 / disp.pixel_scale_arcsec : 14; // радіус 10″ у пікселях PNG
+    const gaiaSources = frameData?.crossmatch?.overlay ?? [];
+    const anomalies = frameData?.difference?.anomalies ?? [];
+    const minorPlanets = epoch?.known_minor_planets ?? [];
 
     useEffect(() => {
         preloadedImagesRef.current = frames.map((src) => {
@@ -237,7 +361,21 @@ function Home() {
             <Header />
 
             <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
-                <Sidebar />
+                <Sidebar
+                    form={form}
+                    onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                    errors={errors}
+                    canLoad={canLoad}
+                    loading={loading}
+                    progress={progress}
+                    onLoad={() => setQuery({ ...form })}
+                    presets={PRESETS}
+                    onPreset={loadPreset}
+                    view={view}
+                    onViewChange={onViewChange}
+                    dataRange={frameData?.display?.data_range}
+                    autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
+                />
 
                 <main className="min-w-0 p-4 lg:overflow-y-auto">
                     <div className="flex flex-col justify-between gap-1 sm:flex-row">
@@ -280,11 +418,59 @@ function Home() {
                                         Loading sky patch...
                                     </div>
                                 ) : (
-                                    <img
-                                        src={frames[currentIndex]}
-                                        alt={`Observation frame ${currentIndex + 1}`}
-                                        className="h-full w-full object-cover"
-                                    />
+                                    baseUrl ? (
+                                        <>
+                                            <img
+                                                src={baseUrl}
+                                                alt={`${tab}, frame ${currentIndex + 1}`}
+                                                className="h-full w-full object-cover"
+                                                style={{ filter: view.invert ? "invert(1)" : "none" }}
+                                            />
+
+                                            {view.defect && epoch?.layers?.flags && (
+                                                <img
+                                                    src={epoch.layers.flags}
+                                                    alt="Defect mask"
+                                                    className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                                                    style={{ opacity: view.opacity / 100 }}
+                                                />
+                                            )}
+
+                                            <svg viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 h-full w-full">
+                                                {view.gaia && gaiaSources.map((s) => (
+                                                    <circle key={s.source_id} cx={s.x} cy={s.y} r="7" fill="none"
+                                                            stroke="#8FDADA" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+                                                ))}
+
+                                                {view.motion && (
+                                                    <>
+                                                        {anomalies.map((a, i) => (
+                                                            <g key={i} stroke="#E7C58B" fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke">
+                                                                {a.x_from != null && <line x1={a.x_from} y1={a.y_from} x2={a.x} y2={a.y} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+                                                                <circle cx={a.x} cy={a.y} r="9" vectorEffect="non-scaling-stroke" />
+                                                            </g>
+                                                        ))}
+                                                        {minorPlanets.map((m, i) => (
+                                                            <g key={i}>
+                                                                <rect x={m.x - 5} y={m.y - 5} width="10" height="10" fill="none" stroke="#F0A5B4" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+                                                                <text x={m.x + 9} y={m.y + 4} fill="#F0A5B4" fontSize="11">{m.name}</text>
+                                                            </g>
+                                                        ))}
+                                                    </>
+                                                )}
+
+                                                {view.crosshair && (
+                                                    <g stroke="#D5B6FF" fill="none" strokeWidth="1" vectorEffect="non-scaling-stroke">
+                                                        <circle cx={W / 2} cy={H / 2} r={crosshairR} vectorEffect="non-scaling-stroke" />
+                                                        <line x1={W / 2 - crosshairR - 6} y1={H / 2} x2={W / 2 + crosshairR + 6} y2={H / 2} vectorEffect="non-scaling-stroke" />
+                                                        <line x1={W / 2} y1={H / 2 - crosshairR - 6} x2={W / 2} y2={H / 2 + crosshairR + 6} vectorEffect="non-scaling-stroke" />
+                                                    </g>
+                                                )}
+                                            </svg>
+                                        </>
+                                    ) : (
+                                        <div className="flex h-full items-center justify-center text-xs text-muted">No data for «{tab}»</div>
+                                    )
                                 )}
 
                                 <div className="absolute top-[8px] left-[8px] px-2 py-1 pointer-events-none">
