@@ -39,7 +39,7 @@ export function Select({
                         "hover:bg-raised",
                         "data-[state=open]:border-accent",
                         "focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                        "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40 data-[disabled]:hover:bg-bg",
+                        "data-disabled:cursor-not-allowed data-disabled:opacity-40 data-disabled:hover:bg-bg",
                     ].join(" ")}
                 >
                     <RadixSelect.Value />
@@ -63,9 +63,9 @@ export function Select({
                                         "flex h-9 cursor-pointer select-none items-center justify-between gap-2 px-3",
                                         "font-ui text-xs text-text outline-none",
                                         "transition-hover",
-                                        "data-[highlighted]:bg-raised",
+                                        "data-highlighted:bg-raised",
                                         "data-[state=checked]:text-accent",
-                                        "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-40",
+                                        "data-disabled:cursor-not-allowed data-disabled:opacity-40",
                                     ].join(" ")}
                                 >
                                     <RadixSelect.ItemText>{o.label}</RadixSelect.ItemText>

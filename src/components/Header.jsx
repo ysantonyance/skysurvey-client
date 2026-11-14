@@ -1,5 +1,5 @@
-import {Link2 } from "lucide-react";
-import { Action } from "./Action.jsx";
+// import {Link2 } from "lucide-react";
+// import { Action } from "./Action.jsx";
 import logo from "../assets/logo.svg";
 
 export function Header() {
