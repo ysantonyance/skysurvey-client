@@ -8,16 +8,9 @@ function PictureWindow({ imageUrl }) {
     const [currentIndex, setCurrentIndex] = useState(0);
     const [intervalMs, setIntervalMs] = useState(100);
 
-    const frames = frameData?.images || [
-        imageUrl || "https://picsum.photos/620/620?random=1",
-        "https://picsum.photos/620/620?random=2",
-        "https://picsum.photos/620/620?random=3",
-        "https://picsum.photos/620/620?random=4",
-        "https://picsum.photos/620/620?random=5",
-        "https://picsum.photos/620/620?random=6",
-        "https://picsum.photos/620/620?random=7",
-        "https://picsum.photos/620/620?random=8",
-    ];
+    const frames = frameData?.epochs?.map(
+        (epoch) => epoch.layers?.image
+    ).filter(Boolean) || [];
 
     const totalFrames = frames.length;
     const preloadedImagesRef = useRef([]);
@@ -28,7 +21,7 @@ function PictureWindow({ imageUrl }) {
         const fov = 0.1;
 
         setLoading(true);
-        fetch(`http://127.0.0.1:8000/api/v1/target?ra=${ra}&dec=${dec}&fov=${fov}&sync=true`)
+        fetch(`http://127.0.0.1:8000/api/v1/target?ra=269.4485&dec=4.7394&fov=0.1&band=all`)
             .then((res) => {
                 if (!res.ok) {
                     throw new Error(`Ошибка HTTP: ${res.status}`);
@@ -36,7 +29,21 @@ function PictureWindow({ imageUrl }) {
                 return res.json();
             })
             .then((data) => {
-                console.log("Данные от бэка получены:", data);
+                console.log("Усі дані:", data);
+
+                console.log("Ключі об'єкта:", Object.keys(data));
+
+                console.log("Epochs:", data.epochs);
+
+                console.log("Перший epoch:", data.epochs?.[0]);
+
+                console.log(
+                    "Ключі першого epoch:",
+                    Object.keys(data.epochs?.[0] || {})
+                );
+
+                console.log("Display:", data.display);
+
                 setFrameData(data);
                 setLoading(false);
             })

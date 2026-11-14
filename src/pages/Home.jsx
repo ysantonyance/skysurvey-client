@@ -24,7 +24,6 @@ function Home() {
                 <Sidebar />
 
                 <main className="min-w-0 p-4 lg:overflow-y-auto">
-                    {/* Заголовок робочої області */}
                     <div className="flex flex-col justify-between gap-1 sm:flex-row">
                         <div>
                             <h1 className="text-base">Sky position &amp; spectrum</h1>
@@ -33,9 +32,7 @@ function Home() {
                         <p className="text-xs text-muted">Sample dates, catalog and measurements</p>
                     </div>
 
-                    {/* Дві колонки: знімок | спектр */}
                     <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
-                        {/* Знімок і керування */}
                         <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
                             <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
                                 <p>Demo · Candidate · No counterpart in sample Gaia DR3 catalog</p>
@@ -84,7 +81,6 @@ function Home() {
                             <p className="text-xs text-muted">Demo date · 2025-05-06 02:34 UTC · 6 detector frames</p>
                         </section>
 
-                        {/* Спектр */}
                         <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4">
                             <div className="flex items-start justify-between gap-2">
                                 <h2 className="text-2xl">Object spectrum</h2>
