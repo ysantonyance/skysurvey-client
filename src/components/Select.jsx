@@ -15,9 +15,11 @@ export function Select({
 
     return (
         <div className={`flex flex-col gap-1 ${className}`}>
-            <label htmlFor={id} className="text-xs text-muted">
-                {label}
-            </label>
+            {label && (
+                <label htmlFor={id} className="text-xs text-muted">
+                    {label}
+                </label>
+            )}
 
             <RadixSelect.Root
                 value={value}

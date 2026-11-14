@@ -6,7 +6,7 @@ function PictureWindow({ imageUrl }) {
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [intervalMs, setIntervalMs] = useState(100);
+    const [intervalMs, setIntervalMs] = useState(100); // скорость по умолчанию
 
     const frames = frameData?.images || [
         imageUrl || "https://picsum.photos/620/620?random=1",
@@ -23,30 +23,20 @@ function PictureWindow({ imageUrl }) {
     const preloadedImagesRef = useRef([]);
 
     useEffect(() => {
-        const ra = 133.7951;
-        const dec = -7.2451;
-        const fov = 0.1;
-
-        setLoading(true);
-        fetch(`http://127.0.0.1:8000/api/v1/target?ra=${ra}&dec=${dec}&fov=${fov}&sync=true`)
-            .then((res) => {
-                if (!res.ok) {
-                    throw new Error(`Ошибка HTTP: ${res.status}`);
-                }
-                return res.json();
-            })
+        fetch('http://127.0.0.1:8000/api/v1/target?ra=269.4485&dec=4.7394&fov=0.1&band=all')
+            .then((res) => res.json())
             .then((data) => {
-                console.log("Данные от бэка получены:", data);
                 setFrameData(data);
                 setLoading(false);
             })
             .catch((err) => {
-                console.error('Ошибка при получении данных от бэка:', err);
+                console.error('Error loading data:', err);
                 setLoading(false);
             });
     }, []);
 
     useEffect(() => {
+        // Предзагрузка в кэш браузера
         preloadedImagesRef.current = frames.map((src) => {
             const img = new Image();
             img.src = src;
@@ -97,8 +87,8 @@ function PictureWindow({ imageUrl }) {
                     <span className="text-lg text-[var(--color-foreground)]">Current sky patch</span>
                     <span className="text-xs text-[var(--color-muted)] flex items-center gap-2">
                         <span>RA 133.786245° / Dec -7.244372°</span>
-                        <svg width="3" height="3" viewBox="0 0 3 3" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                            <circle cx="1.5" cy="1.5" r="1.5" fill="#ACA3B7"/>
+                        <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                            <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
                         </svg>
                         <span>176° field</span>
                     </span>
@@ -144,19 +134,19 @@ function PictureWindow({ imageUrl }) {
             <div className="w-[620px] flex items-center justify-between text-xs mt-3 text-[var(--color-accent)]">
                 <div className="flex items-center gap-2">
                     <span className="text-[var(--color-muted)]">SPHEREx design preview</span>
-                    <svg width="3" height="3" viewBox="0 0 3 3" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1.5" cy="1.5" r="1.5" fill="#AD96C5"/>
+                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                        <circle cx="1" cy="1" r="1" fill="#AD96C5"/>
                     </svg>
                     <span className="text-[var(--color-muted)]">Band 3</span>
                 </div>
                 <div className="flex items-center gap-2 text-[var(--color-muted)]">
                     <span>North up</span>
-                    <svg width="3" height="3" viewBox="0 0 3 3" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1.5" cy="1.5" r="1.5" fill="#ACA3B7"/>
+                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                        <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
                     </svg>
                     <span>East left</span>
-                    <svg width="3" height="3" viewBox="0 0 3 3" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1.5" cy="1.5" r="1.5" fill="#ACA3B7"/>
+                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                        <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
                     </svg>
                     <span>Illustrative alignment</span>
                 </div>
@@ -246,8 +236,8 @@ function PictureWindow({ imageUrl }) {
                 <span className="text-[var(--color-muted)]">Look for a point that shifts between frames.</span>
                 <div className="flex items-center gap-2">
                     <span>Skypatch</span>
-                    <svg width="3" height="3" viewBox="0 0 3 3" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1.5" cy="1.5" r="1.5" fill="#AD96C5"/>
+                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+                        <circle cx="1" cy="1" r="1" fill="#AD96C5"/>
                     </svg>
                     <span>Infrared sky explorer</span>
                 </div>
