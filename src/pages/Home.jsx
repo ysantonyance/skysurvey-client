@@ -4,10 +4,39 @@ import { Sidebar } from "../components/Sidebar.jsx";
 
 const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
 
+// Центр поля, для которого грузится картинка и спектр по умолчанию
+const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
+
+// Точка считается шумной, если бэкенд пометил её is_flagged
+// или если отношение сигнал/шум ниже этого порога
+const NOISY_SNR = 1;
+
+const targetUrl = (ra, dec) =>
+    `http://127.0.0.1:8000/api/v1/target?ra=${ra}&dec=${dec}&fov=${CENTER.fov}&band=all`;
+
 function Badge({ children }) {
     return (
         <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
     );
+}
+
+// Пиксель на картинке (0..512) -> небесные координаты по WCS из display.wcs
+function pixelToRaDec(pixelX, pixelY, wcs) {
+    const crval1 = Number(wcs.CRVAL1);
+    const crval2 = Number(wcs.CRVAL2);
+    const crpix1 = Number(wcs.CRPIX1);
+    const crpix2 = Number(wcs.CRPIX2);
+    const cdelt1 = Number(wcs.CDELT1);
+    const cdelt2 = Number(wcs.CDELT2);
+
+    const dx = pixelX + 1.0 - crpix1;
+    const dy = pixelY + 1.0 - crpix2;
+
+    const dec = crval2 + dy * cdelt2;
+    const cosDec = Math.cos((crval2 * Math.PI) / 180.0) || 1.0;
+    const ra = (crval1 + (dx * cdelt1) / cosDec + 360.0) % 360.0;
+
+    return { ra: Number(ra.toFixed(6)), dec: Number(dec.toFixed(6)) };
 }
 
 function Home() {
@@ -24,8 +53,15 @@ function Home() {
     const [hoveredPoint, setHoveredPoint] = useState(null);
     const [showBands, setShowBands] = useState(true);
 
+    // Выбранная кликом точка на картинке и её спектр
+    const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
+    const [pointData, setPointData] = useState(null);
+    const [pointLoading, setPointLoading] = useState(false);
+    const [pointError, setPointError] = useState(false);
+    const pointReqRef = useRef(0);
+
     useEffect(() => {
-        fetch('http://127.0.0.1:8000/api/v1/target?ra=269.4485&dec=4.7394&fov=0.1&band=all')
+        fetch(targetUrl(CENTER.ra, CENTER.dec))
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
                 return res.json();
@@ -82,23 +118,73 @@ function Home() {
         else setIntervalMs(50);
     };
 
-    const spectrumData = frameData?.spectrum;
+    // Клик по картинке: пиксель -> RA/Dec (по display.wcs) -> запрос спектра этой точки.
+    // Эндпоинт /target/spectrum отдаёт только спектр, без пересчёта снимков.
+    const handleImageClick = (e) => {
+        const display = frameData?.display;
+        if (!display?.wcs) return;
 
-    const rawSpectrum = (Array.isArray(spectrumData)
-            ? spectrumData
-            : (spectrumData?.points ?? spectrumData?.data ?? [])
-    )
+        const rect = e.currentTarget.getBoundingClientRect();
+        const fx = (e.clientX - rect.left) / rect.width;   // 0..1 слева направо
+        const fy = (e.clientY - rect.top) / rect.height;   // 0..1 сверху вниз
+
+        // пиксель в системе 512x512, как в display.wcs
+        const px = fx * (display.width ?? 512);
+        const py = fy * (display.height ?? 512);
+        const { ra, dec } = pixelToRaDec(px, py, display.wcs);
+
+        setSelected({ ra, dec, fx, fy });
+        setPointLoading(true);
+        setPointError(false);
+
+        // защита от гонки: учитываем только ответ на последний клик
+        const reqId = ++pointReqRef.current;
+        fetch(`http://127.0.0.1:8000/api/v1/target/spectrum?ra=${ra}&dec=${dec}`)
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                return res.json();
+            })
+            .then((data) => {
+                if (reqId === pointReqRef.current) setPointData(data);
+            })
+            .catch((err) => {
+                console.error('Error loading point spectrum:', err);
+                if (reqId === pointReqRef.current) {
+                    setPointData(null);
+                    setPointError(true);
+                }
+            })
+            .finally(() => {
+                if (reqId === pointReqRef.current) setPointLoading(false);
+            });
+    };
+
+    // Спектр: для выбранной точки, иначе для центра поля
+    const rawPoints =
+        pointData?.chart_data ??
+        frameData?.spectrum_data?.chart_data ??
+        frameData?.spectrum?.points ??
+        [];
+
+    const rawSpectrum = rawPoints
         .filter((p) => p.flux !== null && p.flux !== undefined)
-        .map((p) => ({
-            ...p,
-            wavelength: p.wavelength_um,
-            flux_error: p.error ?? 0,
-            is_flagged: p.is_flagged ?? false,
-            band: `Band ${p.detector}`,
-        }));
+        .map((p) => {
+            const flux_error = p.flux_error ?? p.error ?? 0;
+            const snr = p.snr ?? (flux_error ? Math.abs(p.flux / flux_error) : 0);
+            return {
+                ...p,
+                wavelength: p.wavelength_um,
+                flux_error,
+                snr,
+                band: p.band ?? `Band ${p.detector}`,
+                is_noisy: p.is_flagged === true || snr < NOISY_SNR,
+            };
+        });
+
+    const noisyCount = rawSpectrum.filter((p) => p.is_noisy).length;
 
     const spectrumPoints = rawSpectrum
-        .filter(p => !(hideNoisy && p.is_flagged))
+        .filter(p => !(hideNoisy && p.is_noisy))
         .sort((a, b) => a.wavelength - b.wavelength);
 
     const minWavelength = 0.75;
@@ -143,6 +229,9 @@ function Home() {
         return found || detectorBands[0];
     };
 
+    const shownRa = (selected?.ra ?? CENTER.ra).toFixed(6);
+    const shownDec = (selected?.dec ?? CENTER.dec).toFixed(6);
+
     return (
         <div className="flex min-h-screen flex-col bg-bg text-text lg:h-screen lg:overflow-hidden">
             <Header />
@@ -154,7 +243,7 @@ function Home() {
                     <div className="flex flex-col justify-between gap-1 sm:flex-row">
                         <div>
                             <h1 className="text-base">Sky position &amp; spectrum</h1>
-                            <p className="text-xs text-muted">RA 133.786245° / Dec -7.244372° · 0.10° field</p>
+                            <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {CENTER.fov.toFixed(2)}° field</p>
                         </div>
                         <p className="text-xs text-muted">Sample dates, catalog and measurements</p>
                     </div>
@@ -182,7 +271,10 @@ function Home() {
                                 ))}
                             </div>
 
-                            <div className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface">
+                            <div
+                                onClick={handleImageClick}
+                                className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface cursor-crosshair"
+                            >
                                 {loading ? (
                                     <div className="flex h-full items-center justify-center text-xs text-muted">
                                         Loading sky patch...
@@ -206,9 +298,17 @@ function Home() {
                                         <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
                                     </svg>
                                 </div>
+
+                                {/* Маркер выбранной точки */}
+                                {selected && (
+                                    <div
+                                        className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-accent"
+                                        style={{ left: `${selected.fx * 100}%`, top: `${selected.fy * 100}%` }}
+                                    />
+                                )}
                             </div>
 
-                            <p className="text-xs text-muted">Move over the image for pixel and sky coordinates.</p>
+                            <p className="text-xs text-muted">Click the image to load the spectrum for that position.</p>
 
                             <div className="flex items-center justify-between text-xs text-muted">
                                 <span>− &nbsp; 100% &nbsp; +</span>
@@ -319,7 +419,12 @@ function Home() {
                                 <Badge>Illustrative data</Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
-                            <p className="mt-1 text-xs text-accent">RA 133.786245° / Dec -7.244372°</p>
+                            <p className="mt-1 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
+                            {pointError && (
+                                <p className="mt-1 text-xs text-rose-400">
+                                    Could not load spectrum for this position. Showing the field center instead.
+                                </p>
+                            )}
 
                             <div className="mt-3 flex flex-wrap gap-4 text-xs">
                                 <label className="flex items-center gap-2 cursor-pointer">
@@ -329,7 +434,7 @@ function Home() {
                                         onChange={(e) => setHideNoisy(e.target.checked)}
                                         className="accent-accent"
                                     />
-                                    Hide noisy / defective points
+                                    Hide noisy / defective points ({noisyCount})
                                 </label>
                                 <label className="flex items-center gap-2 cursor-pointer">
                                     <input
@@ -347,11 +452,15 @@ function Home() {
                                         onChange={(e) => setShowBands(e.target.checked)}
                                         className="accent-accent"
                                     />
-                                    Show molecular bands
+                                    Show molecular bands ({bands.length})
                                 </label>
                             </div>
 
-                            <div className="relative mt-3 w-full rounded-sm bg-bg border border-border p-2 select-none overflow-hidden">
+                            <p className="mt-2 text-xs text-muted">
+                                {rawSpectrum.length} measured points · {noisyCount} noisy / defective · {bands.length} molecular bands · 6 detector bands
+                            </p>
+
+                            <div className={`relative mt-3 w-full rounded-sm bg-bg border border-border p-2 select-none overflow-hidden ${pointLoading ? "opacity-50" : ""}`}>
                                 <svg
                                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                                     className="w-full h-auto overflow-visible"
@@ -478,7 +587,7 @@ function Home() {
                                         const yTop = scaleY(pt.flux + (pt.flux_error || 0));
                                         const yBottom = scaleY(pt.flux - (pt.flux_error || 0));
                                         const detector = getDetectorForWavelength(pt.wavelength);
-                                        const isFlagged = pt.is_flagged;
+                                        const isFlagged = pt.is_noisy;
 
                                         return (
                                             <g
@@ -532,9 +641,11 @@ function Home() {
                                         <div className="text-muted">
                                             Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? (hoveredPoint.flux_error ? Math.abs(hoveredPoint.flux / hoveredPoint.flux_error) : 0)).toFixed(2)}
                                         </div>
-                                        {hoveredPoint.is_flagged && (
+                                        {hoveredPoint.is_noisy && (
                                             <div className="mt-1 text-rose-400 font-medium">
-                                                ⚠ Warning: Point is flagged as noisy / defective (is_flagged: true).
+                                                ⚠ Warning: {hoveredPoint.is_flagged
+                                                ? "point is flagged as noisy / defective (is_flagged: true)."
+                                                : `low signal-to-noise (SNR < ${NOISY_SNR}), large uncertainty.`}
                                             </div>
                                         )}
                                     </div>
