@@ -29,21 +29,7 @@ function PictureWindow({ imageUrl }) {
                 return res.json();
             })
             .then((data) => {
-                console.log("Усі дані:", data);
-
-                console.log("Ключі об'єкта:", Object.keys(data));
-
-                console.log("Epochs:", data.epochs);
-
-                console.log("Перший epoch:", data.epochs?.[0]);
-
-                console.log(
-                    "Ключі першого epoch:",
-                    Object.keys(data.epochs?.[0] || {})
-                );
-
-                console.log("Display:", data.display);
-
+                console.log("Данные от бэка получены:", data);
                 setFrameData(data);
                 setLoading(false);
             })
