@@ -1,24 +1,14 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 
+const API = "http://127.0.0.1:8000";
+
 const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
 
-// Центр поля, для которого грузится картинка и спектр по умолчанию
 const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
 
-// Точка считается шумной, если бэкенд пометил её is_flagged
-// или если отношение сигнал/шум ниже этого порога
 const NOISY_SNR = 1;
-
-const targetUrl = (ra, dec) =>
-    `http://127.0.0.1:8000/api/v1/target?ra=${ra}&dec=${dec}&fov=${CENTER.fov}&band=all`;
-
-function Badge({ children }) {
-    return (
-        <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
-    );
-}
 
 const PRESETS = [
     { label: "WISE 0855", ra: "133.7951", dec: "-7.2451" },
@@ -32,7 +22,13 @@ const DEFAULT_VIEW = {
     stretch: "asinh", cut: null, softness: 0.1, // cut: null = авто
     invert: false,
 };
-// Пиксель на картинке (0..512) -> небесные координаты по WCS из display.wcs
+
+function Badge({ children }) {
+    return (
+        <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
+    );
+}
+
 function pixelToRaDec(pixelX, pixelY, wcs) {
     const crval1 = Number(wcs.CRVAL1);
     const crval2 = Number(wcs.CRVAL2);
@@ -68,6 +64,17 @@ function Home() {
     const [form, setForm] = useState({ ra: "269.4485", dec: "4.7394", fov: "0.10", band: "all" });
     const [query, setQuery] = useState(form);
     const [error, setError] = useState(null);
+    const [progress, setProgress] = useState(null);
+
+    const [view, setView] = useState(DEFAULT_VIEW);
+    const [stretched, setStretched] = useState(null);
+    const onViewChange = (patch) => setView((v) => ({ ...v, ...patch }));
+
+    const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
+    const [pointData, setPointData] = useState(null);
+    const [pointLoading, setPointLoading] = useState(false);
+    const [pointError, setPointError] = useState(false);
+    const pointReqRef = useRef(0);
 
     const raNum = Number(form.ra);
     const decNum = Number(form.dec);
@@ -76,17 +83,12 @@ function Home() {
         dec: form.dec === "" || isNaN(decNum) || decNum < -90 || decNum > 90 ? "Enter Dec from -90° to 90°." : null,
     };
     const canLoad = !errors.ra && !errors.dec && !loading;
+
     const loadPreset = (p) => {
         const next = { ...form, ra: p.ra, dec: p.dec, fov: "0.10", band: "all" };
         setForm(next);
         setQuery(next);
     };
-
-    const [progress, setProgress] = useState(null);
-
-    const [view, setView] = useState(DEFAULT_VIEW);
-    const [stretched, setStretched] = useState(null); // base64-кадри після restretch
-    const onViewChange = (patch) => setView((v) => ({ ...v, ...patch }));
 
     useEffect(() => {
         const ctrl = new AbortController();
@@ -99,17 +101,7 @@ function Home() {
         const run = async () => {
             try {
                 const params = new URLSearchParams({ ...query, sync: "false" });
-                const res = await fetch(`http://127.0.0.1:8000/api/v1/target?${params}`, { signal: ctrl.signal });
-    // Выбранная кликом точка на картинке и её спектр
-    const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
-    const [pointData, setPointData] = useState(null);
-    const [pointLoading, setPointLoading] = useState(false);
-    const [pointError, setPointError] = useState(false);
-    const pointReqRef = useRef(0);
-
-    useEffect(() => {
-        fetch(targetUrl(CENTER.ra, CENTER.dec))
-            .then((res) => {
+                const res = await fetch(`${API}/api/v1/target?${params}`, { signal: ctrl.signal });
                 if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
                 const data = await res.json();
                 if (ctrl.signal.aborted) return;
@@ -121,17 +113,15 @@ function Home() {
 
                 if (data.status === "ready" || data.status === "partial") {
                     setFrameData(data);
-                    setCurrentIndex(0);
-                    setIsPlaying(false);
-                    setLoading(false);          // знімок вже можна показувати
+                    setLoading(false); // знімок вже можна показувати
                 }
 
                 if (data.status === "processing" || data.status === "partial") {
                     timer = setTimeout(run, data.poll_after_ms ?? 1500);
-                    return;                      // продовжуємо опитувати
+                    return; // продовжуємо опитувати
                 }
 
-                setProgress(null);              // ready: бар можна сховати
+                setProgress(null); // ready: бар можна сховати
             } catch (err) {
                 if (err.name !== "AbortError") {
                     setError(err.message);
@@ -148,6 +138,11 @@ function Home() {
     useEffect(() => {
         setStretched(null);
         setView((v) => ({ ...v, cut: null }));
+        setSelected(null);
+        setPointData(null);
+        setPointError(false);
+        setCurrentIndex(0);
+        setIsPlaying(false);
     }, [frameData?.target_key]);
 
     useEffect(() => {
@@ -158,7 +153,7 @@ function Home() {
         const ctrl = new AbortController();
         const t = setTimeout(async () => {
             try {
-                const res = await fetch("http://127.0.0.1:8000/api/v1/target/restretch", {
+                const res = await fetch(`${API}/api/v1/target/restretch`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     signal: ctrl.signal,
@@ -183,10 +178,10 @@ function Home() {
         return () => { clearTimeout(t); ctrl.abort(); };
     }, [view.stretch, view.cut, view.softness, frameData?.target_key, frameData?.status]);
 
-    const frames = frameData?.epochs?.map(
-        (epoch) => epoch.layers?.image
-    ).filter(Boolean) || [];
-
+    const frames = useMemo(
+        () => (frameData?.epochs ?? []).map((e) => e.layers?.image).filter(Boolean),
+        [frameData]
+    );
     const totalFrames = frames.length;
     const epoch = frameData?.epochs?.[currentIndex];
     const layerUrl = {
@@ -242,17 +237,14 @@ function Home() {
         else setIntervalMs(50);
     };
 
-    // Клик по картинке: пиксель -> RA/Dec (по display.wcs) -> запрос спектра этой точки.
-    // Эндпоинт /target/spectrum отдаёт только спектр, без пересчёта снимков.
     const handleImageClick = (e) => {
         const display = frameData?.display;
         if (!display?.wcs) return;
 
         const rect = e.currentTarget.getBoundingClientRect();
-        const fx = (e.clientX - rect.left) / rect.width;   // 0..1 слева направо
-        const fy = (e.clientY - rect.top) / rect.height;   // 0..1 сверху вниз
+        const fx = (e.clientX - rect.left) / rect.width;
+        const fy = (e.clientY - rect.top) / rect.height;
 
-        // пиксель в системе 512x512, как в display.wcs
         const px = fx * (display.width ?? 512);
         const py = fy * (display.height ?? 512);
         const { ra, dec } = pixelToRaDec(px, py, display.wcs);
@@ -261,9 +253,8 @@ function Home() {
         setPointLoading(true);
         setPointError(false);
 
-        // защита от гонки: учитываем только ответ на последний клик
         const reqId = ++pointReqRef.current;
-        fetch(`http://127.0.0.1:8000/api/v1/target/spectrum?ra=${ra}&dec=${dec}`)
+        fetch(`${API}/api/v1/target/spectrum?ra=${ra}&dec=${dec}`)
             .then((res) => {
                 if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
                 return res.json();
@@ -283,7 +274,6 @@ function Home() {
             });
     };
 
-    // Спектр: для выбранной точки, иначе для центра поля
     const rawPoints =
         pointData?.chart_data ??
         frameData?.spectrum_data?.chart_data ??
@@ -308,7 +298,7 @@ function Home() {
     const noisyCount = rawSpectrum.filter((p) => p.is_noisy).length;
 
     const spectrumPoints = rawSpectrum
-        .filter(p => !(hideNoisy && p.is_noisy))
+        .filter((p) => !(hideNoisy && p.is_noisy))
         .sort((a, b) => a.wavelength - b.wavelength);
 
     const minWavelength = 0.75;
@@ -353,8 +343,9 @@ function Home() {
         return found || detectorBands[0];
     };
 
-    const shownRa = (selected?.ra ?? CENTER.ra).toFixed(6);
-    const shownDec = (selected?.dec ?? CENTER.dec).toFixed(6);
+    const shownRa = Number(selected?.ra ?? frameData?.ra ?? CENTER.ra).toFixed(6);
+    const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
+    const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
 
     return (
         <div className="flex min-h-screen flex-col bg-bg text-text lg:h-screen lg:overflow-hidden">
@@ -381,7 +372,7 @@ function Home() {
                     <div className="flex flex-col justify-between gap-1 sm:flex-row">
                         <div>
                             <h1 className="text-base">Sky position &amp; spectrum</h1>
-                            <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {CENTER.fov.toFixed(2)}° field</p>
+                            <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
                         </div>
                         <p className="text-xs text-muted">Sample dates, catalog and measurements</p>
                     </div>
@@ -408,6 +399,8 @@ function Home() {
                                     </button>
                                 ))}
                             </div>
+
+                            {error && <p className="text-xs text-error">Backend error: {error}</p>}
 
                             <div
                                 onClick={handleImageClick}
@@ -485,7 +478,6 @@ function Home() {
                                     </svg>
                                 </div>
 
-                                {/* Маркер выбранной точки */}
                                 {selected && (
                                     <div
                                         className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-accent"
@@ -552,7 +544,7 @@ function Home() {
 
                                 <div className="text-right text-xs">
                                     <div className="font-medium text-accent">
-                                        Frame {currentIndex + 1} / {totalFrames}
+                                        Frame {totalFrames ? currentIndex + 1 : 0} / {totalFrames}
                                     </div>
                                     <div className="text-muted text-[10px]">Observation player</div>
                                 </div>
@@ -607,7 +599,7 @@ function Home() {
                             <p className="mt-1 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
                             <p className="mt-1 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
                             {pointError && (
-                                <p className="mt-1 text-xs text-rose-400">
+                                <p className="mt-1 text-xs text-error">
                                     Could not load spectrum for this position. Showing the field center instead.
                                 </p>
                             )}
@@ -652,7 +644,6 @@ function Home() {
                                     className="w-full h-auto overflow-visible"
                                 >
 
-                                    {/* Полосы поглощения молекул */}
                                     {showBands && bands.map((b, i) => {
                                         const x1 = scaleX(b.range_um[0]);
                                         const x2 = scaleX(b.range_um[1]);
@@ -660,7 +651,6 @@ function Home() {
                                             <g key={`${b.molecule}-${i}`}>
                                                 <title>{b.label}</title>
                                                 <rect x={x1} y={padding.top} width={x2 - x1} height={plotHeight} fill="currentColor" opacity={0.12} />
-                                                {/* маленькая скобка над полосой */}
                                                 <path
                                                     d={`M ${x1} ${padding.top - 6} V ${padding.top - 12} H ${x2} V ${padding.top - 6}`}
                                                     fill="none"
@@ -675,7 +665,6 @@ function Home() {
                                         );
                                     })}
 
-                                    {/* Горизонтальные линии сетки */}
                                     {[0.25, 0.5, 0.75, 1].map((ratio, i) => {
                                         const yVal = minY + (maxY - minY) * ratio;
                                         const yPos = scaleY(yVal);
@@ -825,7 +814,7 @@ function Home() {
                                             Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
                                         </div>
                                         <div className="text-muted">
-                                            Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? (hoveredPoint.flux_error ? Math.abs(hoveredPoint.flux / hoveredPoint.flux_error) : 0)).toFixed(2)}
+                                            Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? 0).toFixed(2)}
                                         </div>
                                         {hoveredPoint.is_noisy && (
                                             <div className="mt-1 text-rose-400 font-medium">
