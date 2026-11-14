@@ -1,0 +1,26 @@
+{
+    "status": "success",
+    "stage": "main",
+    "is_simulation": true,
+    "center_icrs": {
+    "ra": 185.235,
+        "dec": 12.129,
+        "unit": "deg"
+},
+    "strip_range": [1, 102],
+    "frames": [
+    {
+        "frame_id": "fr_001",
+        "strip_number": 1,
+        "date": "2026-06-06T12:00:00Z",
+        "image_url": "https://via.placeholder.com/300?text=Strip+1"
+    },
+    {
+        "frame_id": "fr_002",
+        "strip_number": 2,
+        "date": null,
+        "image_url": "https://via.placeholder.com/300?text=Strip+2"
+    }
+],
+    "missing_frames": ["fr_015", "fr_016"]
+}
