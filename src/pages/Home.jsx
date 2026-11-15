@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Check, TriangleAlert  } from "lucide-react";
+import { Check, TriangleAlert } from "lucide-react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { Select } from "../components/Select.jsx";
@@ -13,10 +13,8 @@ const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
 
 const NOISY_SNR = 1;
 
-// Цвет шумных / дефектных точек
 const NOISY_COLOR = "#A49DAF";
 
-// Подписи молекул идут в два ряда, чтобы не налезать друг на друга
 const LABEL_ROW = { CH4: 1 };
 
 const PALETTE = ["#E8D9FF", "#D2B0F8", "#B99BEB", "#D29BD2", "#B7A7EE", "#DAB5E7"];
@@ -128,6 +126,22 @@ function Home() {
     const [pointLoading, setPointLoading] = useState(false);
     const [pointError, setPointError] = useState(false);
     const pointReqRef = useRef(0);
+
+    // Состояния для модального окна Share / Embed
+    const [shareOpen, setShareOpen] = useState(false);
+    const [copied, setCopied] = useState(false);
+
+    const shownRa = Number(selected?.ra ?? frameData?.ra ?? CENTER.ra).toFixed(6);
+    const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
+    const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
+
+    const embedCode = `<iframe src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed?ra=${shownRa}&dec=${shownDec}&fov=${shownFov}" width="700" height="500" frameborder="0"></iframe>`;
+
+    const handleCopyEmbed = () => {
+        navigator.clipboard.writeText(embedCode);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     const raNum = Number(form.ra);
     const decNum = Number(form.dec);
@@ -360,9 +374,6 @@ function Home() {
     const minY = Math.min(0, ...allFluxes) * 1.1;
     const maxY = Math.max(10, ...allFluxes) * 1.1;
 
-    const scaleX = (w) => padding.left + ((w - minWavelength) / (maxWavelength - minWavelength)) * plotWidth;
-    const scaleY = (f) => padding.top + plotHeight - ((f - minY) / (maxY - minY)) * plotHeight;
-
     const niceStep = (range, target = 6) => {
         const raw = range / target;
         const pow = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -412,542 +423,607 @@ function Home() {
     })();
     const bandColor = Object.fromEntries(bandGroups.map((g) => [g.name, g.color]));
 
-    const shownRa = Number(selected?.ra ?? frameData?.ra ?? CENTER.ra).toFixed(6);
-    const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
-    const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
+    const scaleX = (w) => padding.left + ((w - minWavelength) / (maxWavelength - minWavelength)) * plotWidth;
+    const scaleY = (f) => padding.top + plotHeight - ((f - minY) / (maxY - minY)) * plotHeight;
 
     return (
         <div className="bg-bg text-text">
-        <div className="flex min-h-screen flex-col lg:h-screen">
-            <Header />
+            <div className="flex min-h-screen flex-col lg:h-screen">
+                <Header />
 
-            <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
-                <Sidebar
-                    form={form}
-                    onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
-                    errors={errors}
-                    canLoad={canLoad}
-                    loading={loading}
-                    progress={progress}
-                    onLoad={() => setQuery({ ...form })}
-                    presets={PRESETS}
-                    onPreset={loadPreset}
-                    view={view}
-                    onViewChange={onViewChange}
-                    dataRange={frameData?.display?.data_range}
-                    autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
-                />
+                <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+                    <Sidebar
+                        form={form}
+                        onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                        errors={errors}
+                        canLoad={canLoad}
+                        loading={loading}
+                        progress={progress}
+                        onLoad={() => setQuery({ ...form })}
+                        presets={PRESETS}
+                        onPreset={loadPreset}
+                        view={view}
+                        onViewChange={onViewChange}
+                        dataRange={frameData?.display?.data_range}
+                        autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
+                    />
 
-                <main className="min-w-0 p-4 lg:overflow-y-auto">
-                    <div className="flex flex-col justify-between gap-1 sm:flex-row">
-                        <div>
-                            <h1 className="text-base">Sky position &amp; spectrum</h1>
-                            <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
+                    <main className="min-w-0 p-4 lg:overflow-y-auto">
+                        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                            <div>
+                                <h1 className="text-base">Sky position &amp; spectrum</h1>
+                                <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
+                            </div>
+                            <div>
+                                <button
+                                    onClick={() => setShareOpen(true)}
+                                    className="h-8 px-3 rounded-sm border border-border bg-surface text-xs text-text hover:bg-raised transition cursor-pointer flex items-center gap-1.5"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                                    Share / Embed
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
-                        <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
-                            <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
-                                {cm ? (
-                                    <>
-                                        <p>{CLASS_LABEL[cm.classification] ?? cm.classification} · {cm.reason}</p>
-                                        <p className="mt-2 text-muted">
-                                            IR signal · {cm.spherex_snr != null ? `SNR ${cm.spherex_snr.toFixed(1)}σ` : "SNR n/a"}
-                                            {cm.wise_match?.w1_w2_color != null && ` · W1−W2 ${cm.wise_match.w1_w2_color.toFixed(2)} mag`}
-                                        </p>
-                                    </>
-                                ) : (
-                                    <p className="text-muted">Loading catalog match…</p>
-                                )}
-                            </div>
-
-                            <div role="tablist" className="flex gap-1 text-xs">
-                                {TABS.map((t) => (
-                                    <button
-                                        key={t}
-                                        role="tab"
-                                        aria-selected={tab === t}
-                                        onClick={() => setTab(t)}
-                                        className={`h-8 flex-1 rounded-sm border px-2 transition-hover ${
-                                            tab === t ? "border-accent bg-accent/15" : "border-transparent text-muted hover:bg-raised"
-                                        }`}
-                                    >
-                                        {t}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {error && (() => {
-                                const e = friendlyError(error);
-                                return (
-                                    <div role="alert" className="flex items-start gap-3 rounded-sm border border-error/40 bg-error/10 p-3 text-xs">
-                                        <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden />
-                                        <div className="flex-1">
-                                            <p className="text-error">{e.title}</p>
-                                            <p className="mt-1 text-muted">{e.text}</p>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setQuery({ ...query })}
-                                            className="h-8 shrink-0 cursor-pointer rounded-sm border border-border px-3 text-text transition-hover hover:bg-raised"
-                                        >
-                                            Try again
-                                        </button>
-                                    </div>
-                                );
-                            })()}
-
-                            <div
-                                onClick={handleImageClick}
-                                className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface cursor-crosshair"
-                            >
-                                {loading ? (
-                                    <div className="flex h-full items-center justify-center text-xs text-muted">
-                                        Loading sky patch...
-                                    </div>
-                                ) : (
-                                    baseUrl ? (
+                        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
+                            <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
+                                <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
+                                    {cm ? (
                                         <>
-                                            <img
-                                                src={baseUrl}
-                                                alt={`${tab}, frame ${currentIndex + 1}`}
-                                                className="h-full w-full object-cover"
-                                                style={{ filter: view.invert ? "invert(1)" : "none" }}
-                                            />
-
-                                            {view.defect && epoch?.layers?.flags && (
-                                                <img
-                                                    src={epoch.layers.flags}
-                                                    alt="Defect mask"
-                                                    className="pointer-events-none absolute inset-0 h-full w-full object-cover"
-                                                    style={{ opacity: view.opacity / 100 }}
-                                                />
-                                            )}
-
-                                            <svg viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 h-full w-full">
-                                                {view.gaia && gaiaSources.map((s) => (
-                                                    <circle key={s.source_id} cx={s.x} cy={s.y} r="7" fill="none"
-                                                            stroke="#8FDADA" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
-                                                ))}
-
-                                                {view.motion && (
-                                                    <>
-                                                        {anomalies.map((a, i) => (
-                                                            <g key={i} stroke="#E7C58B" fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke">
-                                                                {a.x_from != null && <line x1={a.x_from} y1={a.y_from} x2={a.x} y2={a.y} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
-                                                                <circle cx={a.x} cy={a.y} r="9" vectorEffect="non-scaling-stroke" />
-                                                            </g>
-                                                        ))}
-                                                        {minorPlanets.map((m, i) => (
-                                                            <g key={i}>
-                                                                <rect x={m.x - 5} y={m.y - 5} width="10" height="10" fill="none" stroke="#F0A5B4" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
-                                                                <text x={m.x + 9} y={m.y + 4} fill="#F0A5B4" fontSize="11">{m.name}</text>
-                                                            </g>
-                                                        ))}
-                                                    </>
-                                                )}
-
-                                                {view.crosshair && (
-                                                    <g stroke="#D5B6FF" fill="none" strokeWidth="1" vectorEffect="non-scaling-stroke">
-                                                        <circle cx={W / 2} cy={H / 2} r={crosshairR} vectorEffect="non-scaling-stroke" />
-                                                        <line x1={W / 2 - crosshairR - 6} y1={H / 2} x2={W / 2 + crosshairR + 6} y2={H / 2} vectorEffect="non-scaling-stroke" />
-                                                        <line x1={W / 2} y1={H / 2 - crosshairR - 6} x2={W / 2} y2={H / 2 + crosshairR + 6} vectorEffect="non-scaling-stroke" />
-                                                    </g>
-                                                )}
-                                            </svg>
+                                            <p>{CLASS_LABEL[cm.classification] ?? cm.classification} · {cm.reason}</p>
+                                            <p className="mt-2 text-muted">
+                                                IR signal · {cm.spherex_snr != null ? `SNR ${cm.spherex_snr.toFixed(1)}σ` : "SNR n/a"}
+                                                {cm.wise_match?.w1_w2_color != null && ` · W1−W2 ${cm.wise_match.w1_w2_color.toFixed(2)} mag`}
+                                            </p>
                                         </>
                                     ) : (
-                                        <div className="flex h-full items-center justify-center text-xs text-muted">No data for «{tab}»</div>
-                                    )
-                                )}
-
-                                <div className="absolute top-2 left-2 px-2 py-1 pointer-events-none">
-                                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M0.5 32V0.5H32" stroke="#D5B6FF" strokeWidth="1.5"/>
-                                    </svg>
+                                        <p className="text-muted">Loading catalog match…</p>
+                                    )}
                                 </div>
 
-                                <div className="absolute bottom-2 right-2 px-2 py-1 pointer-events-none">
-                                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
-                                    </svg>
-                                </div>
-
-                                {selected && (
-                                    <div
-                                        className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-accent"
-                                        style={{ left: `${selected.fx * 100}%`, top: `${selected.fy * 100}%` }}
-                                    />
-                                )}
-                            </div>
-
-                            <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={handlePlayToggle}
-                                        className="w-10 h-10 p-3 bg-accent hover:bg-accent-hover text-(--color-on-accent) rounded-(--radius-panel) flex items-center justify-center transition cursor-pointer"
-                                        aria-label="Play or Stop">
-                                        {isPlaying ? (
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                                                <rect x="6" y="4" width="4" height="16"/>
-                                                <rect x="14" y="4" width="4" height="16"/>
-                                            </svg>
-                                        ) : (
-                                            <svg width="24" height="24" viewBox="0 0 32 35" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                <path d="M0.729492 4.42729C0.7293 3.7768 0.900767 3.13777 1.22658 2.57473C1.55239 2.01169 2.02102 1.54458 2.58514 1.22055C3.14925 0.896526 3.78889 0.727061 4.43946 0.729269C5.09004 0.731478 5.72851 0.905281 6.29041 1.23313L28.4694 14.1688C29.0291 14.4935 29.4938 14.9594 29.817 15.52C30.1402 16.0806 30.3106 16.7161 30.3111 17.3632C30.3117 18.0102 30.1424 18.6461 29.8202 19.2072C29.498 19.7683 29.0341 20.2351 28.4749 20.5608L6.29041 33.5001C5.72851 33.828 5.09004 34.0018 4.43946 34.004C3.78889 34.0062 3.14925 33.8367 2.58514 33.5127C2.02102 33.1887 1.55239 32.7215 1.22658 32.1585C0.900767 31.5955 0.7293 30.9564 0.729492 30.3059V4.42729Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                                            </svg>
-                                        )}
-                                    </button>
-
-                                    <button
-                                        onClick={handlePrevFrame}
-                                        className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
-                                        aria-label="Previous frame">
-                                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M14.9757 3.57083C15.2286 3.41908 15.5172 3.33717 15.8121 3.33345C16.1071 3.32972 16.3977 3.40433 16.6543 3.54965C16.911 3.69497 17.1245 3.90579 17.273 4.16059C17.4216 4.4154 17.4998 4.70506 17.4998 5V15C17.4998 15.2949 17.4216 15.5846 17.273 15.8394C17.1245 16.0942 16.911 16.305 16.6543 16.4503C16.3977 16.5957 16.1071 16.6703 15.8121 16.6665C15.5172 16.6628 15.2286 16.5809 14.9757 16.4292L6.64484 11.4308C6.39753 11.2831 6.19275 11.0737 6.05047 10.8232C5.90818 10.5727 5.83326 10.2896 5.83301 10.0015C5.83276 9.71345 5.90718 9.43022 6.04903 9.17947C6.19087 8.92872 6.39529 8.71902 6.64234 8.57083L14.9757 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                                            <path d="M2.5 16.6666V3.33331" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                                        </svg>
-                                    </button>
-
-                                    <button
-                                        onClick={handleNextFrame}
-                                        className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
-                                        aria-label="Next frame">
-                                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                            <path d="M17.5 3.33331V16.6666" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                                            <path d="M5.02417 3.57083C4.77126 3.41908 4.48261 3.33717 4.18769 3.33345C3.89278 3.32972 3.60216 3.40433 3.3455 3.54965C3.08884 3.69497 2.87534 3.90579 2.7268 4.16059C2.57826 4.4154 2.5 4.70506 2.5 5V15C2.5 15.2949 2.57826 15.5846 2.7268 15.8394C2.87534 16.0942 3.08884 16.305 3.3455 16.4503C3.60216 16.5957 3.89278 16.6703 4.18769 16.6665C4.48261 16.6628 4.77126 16.5809 5.02417 16.4292L13.355 11.4308C13.6023 11.2831 13.8071 11.0737 13.9494 10.8232C14.0917 10.5727 14.1666 10.2896 14.1668 10.0015C14.1671 9.71345 14.0927 9.43022 13.9508 9.17947C13.809 8.92872 13.6045 8.71902 13.3575 8.57083L5.02417 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                                        </svg>
-                                    </button>
-
-                                    <Select
-                                        ariaLabel="Playback speed"
-                                        className="w-24"
-                                        value={String(intervalMs)}
-                                        onValueChange={(v) => setIntervalMs(Number(v))}
-                                        options={[
-                                            { value: "50",  label: "50 ms" },
-                                            { value: "100", label: "100 ms" },
-                                            { value: "500", label: "500 ms" },
-                                        ]}
-                                    />
-                                </div>
-
-                                <div className="text-right text-xs">
-                                    <div className="font-medium text-accent">
-                                        Frame {totalFrames ? currentIndex + 1 : 0} / {totalFrames}
-                                    </div>
-                                    <div className="text-muted text-[10px]">Observation player</div>
-                                </div>
-                            </div>
-
-                            <div className="relative flex items-center mt-1">
-                                <input
-                                    type="range"
-                                    min="0"
-                                    max={totalFrames > 0 ? totalFrames - 1 : 0}
-                                    value={currentIndex}
-                                    onChange={(e) => {
-                                        setIsPlaying(false);
-                                        setCurrentIndex(Number(e.target.value));
-                                    }}
-                                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer focus:outline-none bg-(--color-muted) accent-(--color-accent)"
-                                />
-                            </div>
-
-                            <div className="flex gap-2 mt-2">
-                                {frameData?.epochs ? (
-                                    frameData.epochs.map((ep, i) => (
+                                <div role="tablist" className="flex gap-1 text-xs">
+                                    {TABS.map((t) => (
                                         <button
-                                            key={ep.label}
-                                            onClick={() => {
-                                                setIsPlaying(false);
-                                                setCurrentIndex(i);
-                                            }}
-                                            className={`h-10 rounded-sm border px-4 text-xs transition-hover cursor-pointer ${
-                                                currentIndex === i ? "border-accent bg-accent/15 text-accent" : "border-border hover:bg-raised text-muted"
+                                            key={t}
+                                            role="tab"
+                                            aria-selected={tab === t}
+                                            onClick={() => setTab(t)}
+                                            className={`h-8 flex-1 rounded-sm border px-2 transition-hover ${
+                                                tab === t ? "border-accent bg-accent/15" : "border-transparent text-muted hover:bg-raised"
                                             }`}
                                         >
-                                            {ep.label}
+                                            {t}
                                         </button>
-                                    ))
-                                ) : (
-                                    <span className="text-xs text-muted">Loading dates...</span>
-                                )}
-                            </div>
-                            <p className="text-xs text-muted">
-                                {frameData?.epochs?.[currentIndex]?.date_obs
-                                    ? `Observation date · ${frameData.epochs[currentIndex].date_obs}`
-                                    : "Demo date · 2025-05-06 02:34 UTC · 6 detector frames"}
-                            </p>
-                        </section>
+                                    ))}
+                                </div>
 
-                        {/* Блок спектра со свойством self-start, чтобы он не растягивался на всю высоту родителя */}
-                        <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
-                            <div className="flex items-start justify-between gap-2">
-                                <h2 className="text-xl sm:text-2xl font-medium">Object spectrum</h2>
-                            </div>
-                            <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
-                            <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
-                            {pointError && (
-                                <p className="mt-1 text-xs text-error">
-                                    Could not load spectrum for this position. Showing the field center instead.
-                                </p>
-                            )}
+                                {error && (() => {
+                                    const e = friendlyError(error);
+                                    return (
+                                        <div role="alert" className="flex items-start gap-3 rounded-sm border border-error/40 bg-error/10 p-3 text-xs">
+                                            <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden />
+                                            <div className="flex-1">
+                                                <p className="text-error">{e.title}</p>
+                                                <p className="mt-1 text-muted">{e.text}</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setQuery({ ...query })}
+                                                className="h-8 shrink-0 cursor-pointer rounded-sm border border-border px-3 text-text transition-hover hover:bg-raised"
+                                            >
+                                                Try again
+                                            </button>
+                                        </div>
+                                    );
+                                })()}
 
-                            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
-                                <Checkbox
-                                    label={<>Hide noisy / defective points <span className="text-muted">({noisyCount})</span></>}
-                                    checked={hideNoisy}
-                                    onChange={(e) => setHideNoisy(e.target.checked)}
-                                />
-                                <Checkbox
-                                    label={<>Show molecular bands <span className="text-muted">({bands.length})</span></>}
-                                    checked={showBands}
-                                    onChange={(e) => setShowBands(e.target.checked)}
-                                />
-                                <Checkbox
-                                    label="Connect points"
-                                    checked={connectPoints}
-                                    onChange={(e) => setConnectPoints(e.target.checked)}
-                                />
-                            </div>
-
-                            <div className={`relative mt-4 w-full select-none ${pointLoading ? "opacity-50" : ""}`}>
-                                <svg
-                                    viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                                    className="w-full h-auto overflow-visible"
+                                <div
+                                    onClick={handleImageClick}
+                                    className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface cursor-crosshair"
                                 >
-                                    <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} className="fill-bg" />
+                                    {loading ? (
+                                        <div className="flex h-full items-center justify-center text-xs text-muted">
+                                            Loading sky patch...
+                                        </div>
+                                    ) : (
+                                        baseUrl ? (
+                                            <>
+                                                <img
+                                                    src={baseUrl}
+                                                    alt={`${tab}, frame ${currentIndex + 1}`}
+                                                    className="h-full w-full object-cover"
+                                                    style={{ filter: view.invert ? "invert(1)" : "none" }}
+                                                />
 
-                                    {showBands && bands.map((b, i) => {
-                                        const x1 = scaleX(b.range_um[0]);
-                                        const x2 = scaleX(b.range_um[1]);
-                                        const row = LABEL_ROW[b.molecule] ?? 0;
-                                        return (
-                                            <g key={`${b.molecule}-${i}`}>
-                                                <title>{b.label}</title>
-                                                <rect x={x1} y={padding.top} width={x2 - x1} height={plotHeight} fill="currentColor" opacity={0.12} />
-                                                <path
-                                                    d={`M ${x1} ${padding.top - 4} V ${padding.top - 10} H ${x2} V ${padding.top - 4}`}
-                                                    fill="none"
+                                                {view.defect && epoch?.layers?.flags && (
+                                                    <img
+                                                        src={epoch.layers.flags}
+                                                        alt="Defect mask"
+                                                        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                                                        style={{ opacity: view.opacity / 100 }}
+                                                    />
+                                                )}
+
+                                                <svg viewBox={`0 0 ${W} ${H}`} className="pointer-events-none absolute inset-0 h-full w-full">
+                                                    {view.gaia && gaiaSources.map((s) => (
+                                                        <circle key={s.source_id} cx={s.x} cy={s.y} r="7" fill="none"
+                                                                stroke="#8FDADA" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+                                                    ))}
+
+                                                    {view.motion && (
+                                                        <>
+                                                            {anomalies.map((a, i) => (
+                                                                <g key={i} stroke="#E7C58B" fill="none" strokeWidth="1.5" vectorEffect="non-scaling-stroke">
+                                                                    {a.x_from != null && <line x1={a.x_from} y1={a.y_from} x2={a.x} y2={a.y} strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
+                                                                    <circle cx={a.x} cy={a.y} r="9" vectorEffect="non-scaling-stroke" />
+                                                                </g>
+                                                            ))}
+                                                            {minorPlanets.map((m, i) => (
+                                                                <g key={i}>
+                                                                    <rect x={m.x - 5} y={m.y - 5} width="10" height="10" fill="none" stroke="#F0A5B4" strokeWidth="1.2" vectorEffect="non-scaling-stroke" />
+                                                                    <text x={m.x + 9} y={m.y + 4} fill="#F0A5B4" fontSize="11">{m.name}</text>
+                                                                </g>
+                                                            ))}
+                                                        </>
+                                                    )}
+
+                                                    {view.crosshair && (
+                                                        <g stroke="#D5B6FF" fill="none" strokeWidth="1" vectorEffect="non-scaling-stroke">
+                                                            <circle cx={W / 2} cy={H / 2} r={crosshairR} vectorEffect="non-scaling-stroke" />
+                                                            <line x1={W / 2 - crosshairR - 6} y1={H / 2} x2={W / 2 + crosshairR + 6} y2={H / 2} vectorEffect="non-scaling-stroke" />
+                                                            <line x1={W / 2} y1={H / 2 - crosshairR - 6} x2={W / 2} y2={H / 2 + crosshairR + 6} vectorEffect="non-scaling-stroke" />
+                                                        </g>
+                                                    )}
+                                                </svg>
+                                            </>
+                                        ) : (
+                                            <div className="flex h-full items-center justify-center text-xs text-muted">No data for «{tab}»</div>
+                                        )
+                                    )}
+
+                                    <div className="absolute top-2 left-2 px-2 py-1 pointer-events-none">
+                                        <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M0.5 32V0.5H32" stroke="#D5B6FF" strokeWidth="1.5"/>
+                                        </svg>
+                                    </div>
+
+                                    <div className="absolute bottom-2 right-2 px-2 py-1 pointer-events-none">
+                                        <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
+                                        </svg>
+                                    </div>
+
+                                    {selected && (
+                                        <div
+                                            className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-accent"
+                                            style={{ left: `${selected.fx * 100}%`, top: `${selected.fy * 100}%` }}
+                                        />
+                                    )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={handlePlayToggle}
+                                            className="w-10 h-10 p-3 bg-accent hover:bg-accent-hover text-(--color-on-accent) rounded-(--radius-panel) flex items-center justify-center transition cursor-pointer"
+                                            aria-label="Play or Stop">
+                                            {isPlaying ? (
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                                    <rect x="6" y="4" width="4" height="16"/>
+                                                    <rect x="14" y="4" width="4" height="16"/>
+                                                </svg>
+                                            ) : (
+                                                <svg width="24" height="24" viewBox="0 0 32 35" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                    <path d="M0.729492 4.42729C0.7293 3.7768 0.900767 3.13777 1.22658 2.57473C1.55239 2.01169 2.02102 1.54458 2.58514 1.22055C3.14925 0.896526 3.78889 0.727061 4.43946 0.729269C5.09004 0.731478 5.72851 0.905281 6.29041 1.23313L28.4694 14.1688C29.0291 14.4935 29.4938 14.9594 29.817 15.52C30.1402 16.0806 30.3106 16.7161 30.3111 17.3632C30.3117 18.0102 30.1424 18.6461 29.8202 19.2072C29.498 19.7683 29.0341 20.2351 28.4749 20.5608L6.29041 33.5001C5.72851 33.828 5.09004 34.0018 4.43946 34.004C3.78889 34.0062 3.14925 33.8367 2.58514 33.5127C2.02102 33.1887 1.55239 32.7215 1.22658 32.1585C0.900767 31.5955 0.7293 30.9564 0.729492 30.3059V4.42729Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                                </svg>
+                                            )}
+                                        </button>
+
+                                        <button
+                                            onClick={handlePrevFrame}
+                                            className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
+                                            aria-label="Previous frame">
+                                            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M14.9757 3.57083C15.2286 3.41908 15.5172 3.33717 15.8121 3.33345C16.1071 3.32972 16.3977 3.40433 16.6543 3.54965C16.911 3.69497 17.1245 3.90579 17.273 4.16059C17.4216 4.4154 17.4998 4.70506 17.4998 5V15C17.4998 15.2949 17.4216 15.5846 17.273 15.8394C17.1245 16.0942 16.911 16.305 16.6543 16.4503C16.3977 16.5957 16.1071 16.6703 15.8121 16.6665C15.5172 16.6628 15.2286 16.5809 14.9757 16.4292L6.64484 11.4308C6.39753 11.2831 6.19275 11.0737 6.05047 10.8232C5.90818 10.5727 5.83326 10.2896 5.83301 10.0015C5.83276 9.71345 5.90718 9.43022 6.04903 9.17947C6.19087 8.92872 6.39529 8.71902 6.64234 8.57083L14.9757 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                                <path d="M2.5 16.6666V3.33331" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                            </svg>
+                                        </button>
+
+                                        <button
+                                            onClick={handleNextFrame}
+                                            className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
+                                            aria-label="Next frame">
+                                            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M17.5 3.33331V16.6666" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                                <path d="M5.02417 3.57083C4.77126 3.41908 4.48261 3.33717 4.18769 3.33345C3.89278 3.32972 3.60216 3.40433 3.3455 3.54965C3.08884 3.69497 2.87534 3.90579 2.7268 4.16059C2.57826 4.4154 2.5 4.70506 2.5 5V15C2.5 15.2949 2.57826 15.5846 2.7268 15.8394C2.87534 16.0942 3.08884 16.305 3.3455 16.4503C3.60216 16.5957 3.89278 16.6703 4.18769 16.6665C4.48261 16.6628 4.77126 16.5809 5.02417 16.4292L13.355 11.4308C13.6023 11.2831 13.8071 11.0737 13.9494 10.8232C14.0917 10.5727 14.1666 10.2896 14.1668 10.0015C14.1671 9.71345 14.0927 9.43022 13.9508 9.17947C13.809 8.92872 13.6045 8.71902 13.3575 8.57083L5.02417 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                            </svg>
+                                        </button>
+
+                                        <Select
+                                            ariaLabel="Playback speed"
+                                            className="w-24"
+                                            value={String(intervalMs)}
+                                            onValueChange={(v) => setIntervalMs(Number(v))}
+                                            options={[
+                                                { value: "50",  label: "50 ms" },
+                                                { value: "100", label: "100 ms" },
+                                                { value: "500", label: "500 ms" },
+                                            ]}
+                                        />
+                                    </div>
+
+                                    <div className="text-right text-xs">
+                                        <div className="font-medium text-accent">
+                                            Frame {totalFrames ? currentIndex + 1 : 0} / {totalFrames}
+                                        </div>
+                                        <div className="text-muted text-[10px]">Observation player</div>
+                                    </div>
+                                </div>
+
+                                <div className="relative flex items-center mt-1">
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max={totalFrames > 0 ? totalFrames - 1 : 0}
+                                        value={currentIndex}
+                                        onChange={(e) => {
+                                            setIsPlaying(false);
+                                            setCurrentIndex(Number(e.target.value));
+                                        }}
+                                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer focus:outline-none bg-(--color-muted) accent-(--color-accent)"
+                                    />
+                                </div>
+
+                                <div className="flex gap-2 mt-2">
+                                    {frameData?.epochs ? (
+                                        frameData.epochs.map((ep, i) => (
+                                            <button
+                                                key={ep.label}
+                                                onClick={() => {
+                                                    setIsPlaying(false);
+                                                    setCurrentIndex(i);
+                                                }}
+                                                className={`h-10 rounded-sm border px-4 text-xs transition-hover cursor-pointer ${
+                                                    currentIndex === i ? "border-accent bg-accent/15 text-accent" : "border-border hover:bg-raised text-muted"
+                                                }`}
+                                            >
+                                                {ep.label}
+                                            </button>
+                                        ))
+                                    ) : (
+                                        <span className="text-xs text-muted">Loading dates...</span>
+                                    )}
+                                </div>
+                                <p className="text-xs text-muted">
+                                    {frameData?.epochs?.[currentIndex]?.date_obs
+                                        ? `Observation date · ${frameData.epochs[currentIndex].date_obs}`
+                                        : "Demo date · 2025-05-06 02:34 UTC · 6 detector frames"}
+                                </p>
+                            </section>
+
+                            <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
+                                <div className="flex items-start justify-between gap-2">
+                                    <h2 className="text-xl sm:text-2xl font-medium">Object spectrum</h2>
+                                </div>
+                                <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
+                                <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
+                                {pointError && (
+                                    <p className="mt-1 text-xs text-error">
+                                        Could not load spectrum for this position. Showing the field center instead.
+                                    </p>
+                                )}
+
+                                <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+                                    <Checkbox
+                                        label={<>Hide noisy / defective points <span className="text-muted">({noisyCount})</span></>}
+                                        checked={hideNoisy}
+                                        onChange={(e) => setHideNoisy(e.target.checked)}
+                                    />
+                                    <Checkbox
+                                        label={<>Show molecular bands <span className="text-muted">({bands.length})</span></>}
+                                        checked={showBands}
+                                        onChange={(e) => setShowBands(e.target.checked)}
+                                    />
+                                    <Checkbox
+                                        label="Connect points"
+                                        checked={connectPoints}
+                                        onChange={(e) => setConnectPoints(e.target.checked)}
+                                    />
+                                </div>
+
+                                <div className={`relative mt-4 w-full select-none ${pointLoading ? "opacity-50" : ""}`}>
+                                    <svg
+                                        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                                        className="w-full h-auto overflow-visible"
+                                    >
+                                        <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} className="fill-bg" />
+
+                                        {showBands && bands.map((b, i) => {
+                                            const x1 = scaleX(b.range_um[0]);
+                                            const x2 = scaleX(b.range_um[1]);
+                                            const row = LABEL_ROW[b.molecule] ?? 0;
+                                            return (
+                                                <g key={`${b.molecule}-${i}`}>
+                                                    <title>{b.label}</title>
+                                                    <rect x={x1} y={padding.top} width={x2 - x1} height={plotHeight} fill="currentColor" opacity={0.12} />
+                                                    <path
+                                                        d={`M ${x1} ${padding.top - 4} V ${padding.top - 10} H ${x2} V ${padding.top - 4}`}
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        strokeOpacity={0.4}
+                                                        strokeLinejoin="round"
+                                                    />
+                                                    <text
+                                                        x={(x1 + x2) / 2}
+                                                        y={padding.top - (row === 1 ? 17 : 30)}
+                                                        textAnchor="middle"
+                                                        className="text-[9px] fill-muted"
+                                                    >
+                                                        {sub(b.molecule)}
+                                                    </text>
+                                                </g>
+                                            );
+                                        })}
+
+                                        {yTicks.map((t) => (
+                                            <g key={`grid-${t}`}>
+                                                <line
+                                                    x1={padding.left}
+                                                    y1={scaleY(t)}
+                                                    x2={chartWidth - padding.right}
+                                                    y2={scaleY(t)}
                                                     stroke="currentColor"
-                                                    strokeOpacity={0.4}
-                                                    strokeLinejoin="round"
+                                                    strokeOpacity={0.08}
                                                 />
                                                 <text
-                                                    x={(x1 + x2) / 2}
-                                                    y={padding.top - (row === 1 ? 17 : 30)}
-                                                    textAnchor="middle"
-                                                    className="text-[9px] fill-muted"
+                                                    x={padding.left + 8}
+                                                    y={scaleY(t) + 3}
+                                                    textAnchor="end"
+                                                    className={`text-[9px] font-mono ${t === 0 ? "fill-text" : "fill-muted"}`}
                                                 >
-                                                    {sub(b.molecule)}
+                                                    {t === 0 ? "0 µJy" : fmtY(t)}
                                                 </text>
                                             </g>
-                                        );
-                                    })}
+                                        ))}
 
-                                    {yTicks.map((t) => (
-                                        <g key={`grid-${t}`}>
+                                        {minY <= 0 && maxY >= 0 && (
                                             <line
                                                 x1={padding.left}
-                                                y1={scaleY(t)}
+                                                y1={scaleY(0)}
                                                 x2={chartWidth - padding.right}
-                                                y2={scaleY(t)}
+                                                y2={scaleY(0)}
                                                 stroke="currentColor"
-                                                strokeOpacity={0.08}
+                                                strokeDasharray="4,4"
+                                                strokeOpacity={0.7}
                                             />
-                                            <text
-                                                x={padding.left + 8}
-                                                y={scaleY(t) + 3}
-                                                textAnchor="end"
-                                                className={`text-[9px] font-mono ${t === 0 ? "fill-text" : "fill-muted"}`}
-                                            >
-                                                {t === 0 ? "0 µJy" : fmtY(t)}
-                                            </text>
-                                        </g>
-                                    ))}
-
-                                    {minY <= 0 && maxY >= 0 && (
-                                        <line
-                                            x1={padding.left}
-                                            y1={scaleY(0)}
-                                            x2={chartWidth - padding.right}
-                                            y2={scaleY(0)}
-                                            stroke="currentColor"
-                                            strokeDasharray="4,4"
-                                            strokeOpacity={0.7}
-                                        />
-                                    )}
-
-                                    {xTicks.map((w) => (
-                                        <g key={`tick-${w}`}>
-                                            <line
-                                                x1={scaleX(w)}
-                                                y1={padding.top + plotHeight}
-                                                x2={scaleX(w)}
-                                                y2={padding.top + plotHeight + 4}
-                                                stroke="currentColor"
-                                                strokeOpacity={0.3}
-                                            />
-                                            <text
-                                                x={scaleX(w)}
-                                                y={padding.top + plotHeight + 16}
-                                                textAnchor="middle"
-                                                className="text-[9px] fill-muted font-mono"
-                                            >
-                                                {w === 0.75 ? "0.75" : w.toFixed(1)}
-                                            </text>
-                                        </g>
-                                    ))}
-
-                                    <text
-                                        x={padding.left + plotWidth / 2}
-                                        y={chartHeight - 6}
-                                        textAnchor="middle"
-                                        className="text-[10px] fill-muted"
-                                    >
-                                        Wavelength, µm
-                                    </text>
-                                    <text
-                                        transform={`translate(12 ${padding.top + plotHeight / 2}) rotate(-90)`}
-                                        textAnchor="middle"
-                                        className="text-[10px] fill-muted"
-                                    >
-                                        Flux, µJy
-                                    </text>
-
-                                    {connectPoints && spectrumPoints.length > 1 && (
-                                        <path
-                                            d={spectrumPoints.reduce((acc, pt, idx) => {
-                                                const x = scaleX(pt.wavelength);
-                                                const y = scaleY(pt.flux);
-                                                return idx === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
-                                            }, "")}
-                                            fill="none"
-                                            stroke="var(--color-accent)"
-                                            strokeWidth="1.5"
-                                            strokeOpacity={0.7}
-                                        />
-                                    )}
-
-                                    {spectrumPoints.map((pt, idx) => {
-                                        const cx = scaleX(pt.wavelength);
-                                        const cy = scaleY(pt.flux);
-                                        const yTop = scaleY(pt.flux + (pt.flux_error || 0));
-                                        const yBottom = scaleY(pt.flux - (pt.flux_error || 0));
-                                        const detector = { code: pt.detector != null ? `D${pt.detector}` : "" };
-                                        const bandCol = bandColor[pt.band] ?? PALETTE[0];
-                                        const isFlagged = pt.is_noisy;
-                                        const color = isFlagged ? NOISY_COLOR : bandCol;
-
-                                        return (
-                                            <g
-                                                key={`pt-${idx}`}
-                                                className="cursor-pointer"
-                                                onMouseEnter={() => {
-                                                    setHoveredPoint({ ...pt, detector });
-                                                }}
-                                                onMouseLeave={() => setHoveredPoint(null)}
-                                            >
-                                                <g stroke={color} strokeOpacity={0.6} strokeWidth="1">
-                                                    <line x1={cx} y1={yTop} x2={cx} y2={yBottom} />
-                                                    <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} />
-                                                    <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} />
-                                                </g>
-
-                                                {isFlagged ? (
-                                                    <>
-                                                        <circle
-                                                            cx={cx}
-                                                            cy={cy}
-                                                            r={4}
-                                                            fill="none"
-                                                            stroke={NOISY_COLOR}
-                                                            strokeWidth="1"
-                                                            pointerEvents="all"
-                                                        />
-                                                        <line
-                                                            x1={cx - 6}
-                                                            y1={cy + 6}
-                                                            x2={cx + 6}
-                                                            y2={cy - 6}
-                                                            stroke={NOISY_COLOR}
-                                                            strokeWidth="1"
-                                                            strokeLinecap="round"
-                                                            className="pointer-events-none"
-                                                        />
-                                                    </>
-                                                ) : (
-                                                    <circle cx={cx} cy={cy} r={4} fill={bandCol} />
-                                                )}
-                                            </g>
-                                        );
-                                    })}
-                                </svg>
-
-                                {hoveredPoint && (
-                                    <div
-                                        className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg"
-                                        style={{ left: '50%', bottom: '56px' }}
-                                    >
-                                        <div className="font-medium text-accent">
-                                            Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band}{hoveredPoint.detector?.code ? `, ${hoveredPoint.detector.code}` : ""})
-                                        </div>
-                                        <div className="mt-1 text-text">
-                                            Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
-                                        </div>
-                                        <div className="text-muted">
-                                            Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? 0).toFixed(2)}
-                                        </div>
-                                        {hoveredPoint.is_noisy && (
-                                            <div className="mt-1 text-rose-400 font-medium">
-                                                ⚠ Warning: {hoveredPoint.is_flagged
-                                                ? "point is flagged as noisy / defective (is_flagged: true)."
-                                                : `low signal-to-noise (SNR < ${NOISY_SNR}), large uncertainty.`}
-                                            </div>
                                         )}
-                                    </div>
-                                )}
-                            </div>
 
-                            <div className="mt-4 border-t border-border pt-4">
-                                {bandGroups.length > 0 ? (
-                                    <ul className="grid grid-cols-2 gap-x-3 gap-y-4 text-xs text-muted sm:grid-cols-3">
-                                        {bandGroups.map((b) => (
-                                            <li
-                                                key={b.name}
-                                                className="flex items-start gap-2"
-                                                title={`${b.count} points${b.noisy ? `, ${b.noisy} noisy / defective` : ""}`}
-                                            >
-                                                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: b.color }} />
-                                                <div>
-                                                    <div className="text-text">{b.name}</div>
-                                                    <div className="mt-1">{b.wMin.toFixed(2)}–{b.wMax.toFixed(2)} µm{b.code ? ` · ${b.code}` : ""}</div>
-                                                </div>
-                                            </li>
+                                        {xTicks.map((w) => (
+                                            <g key={`tick-${w}`}>
+                                                <line
+                                                    x1={scaleX(w)}
+                                                    y1={padding.top + plotHeight}
+                                                    x2={scaleX(w)}
+                                                    y2={padding.top + plotHeight + 4}
+                                                    stroke="currentColor"
+                                                    strokeOpacity={0.3}
+                                                />
+                                                <text
+                                                    x={scaleX(w)}
+                                                    y={padding.top + plotHeight + 16}
+                                                    textAnchor="middle"
+                                                    className="text-[9px] fill-muted font-mono"
+                                                >
+                                                    {w === 0.75 ? "0.75" : w.toFixed(1)}
+                                                </text>
+                                            </g>
                                         ))}
-                                    </ul>
-                                ) : (
-                                    <p className="text-xs text-muted">No measured bands for this pixel.</p>
-                                )}
 
-                                <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted">
-                                    <span className="flex items-center gap-2">
-                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                                            <circle cx="7" cy="7" r="4" stroke={NOISY_COLOR} strokeWidth="1" />
-                                            <line x1="2" y1="12" x2="12" y2="2" stroke={NOISY_COLOR} strokeWidth="1" strokeLinecap="round" />
-                                        </svg>
-                                        Flagged measurement
-                                    </span>
-                                    <span className="text-right">Molecular regions are reference intervals, not detections.</span>
+                                        <text
+                                            x={padding.left + plotWidth / 2}
+                                            y={chartHeight - 6}
+                                            textAnchor="middle"
+                                            className="text-[10px] fill-muted"
+                                        >
+                                            Wavelength, µm
+                                        </text>
+                                        <text
+                                            transform={`translate(12 ${padding.top + plotHeight / 2}) rotate(-90)`}
+                                            textAnchor="middle"
+                                            className="text-[10px] fill-muted"
+                                        >
+                                            Flux, µJy
+                                        </text>
+
+                                        {connectPoints && spectrumPoints.length > 1 && (
+                                            <path
+                                                d={spectrumPoints.reduce((acc, pt, idx) => {
+                                                    const x = scaleX(pt.wavelength);
+                                                    const y = scaleY(pt.flux);
+                                                    return idx === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
+                                                }, "")}
+                                                fill="none"
+                                                stroke="var(--color-accent)"
+                                                strokeWidth="1.5"
+                                                strokeOpacity={0.7}
+                                            />
+                                        )}
+
+                                        {spectrumPoints.map((pt, idx) => {
+                                            const cx = scaleX(pt.wavelength);
+                                            const cy = scaleY(pt.flux);
+                                            const yTop = scaleY(pt.flux + (pt.flux_error || 0));
+                                            const yBottom = scaleY(pt.flux - (pt.flux_error || 0));
+                                            const detector = { code: pt.detector != null ? `D${pt.detector}` : "" };
+                                            const bandCol = bandColor[pt.band] ?? PALETTE[0];
+                                            const isFlagged = pt.is_noisy;
+                                            const color = isFlagged ? NOISY_COLOR : bandCol;
+
+                                            return (
+                                                <g
+                                                    key={`pt-${idx}`}
+                                                    className="cursor-pointer"
+                                                    onMouseEnter={() => {
+                                                        setHoveredPoint({ ...pt, detector });
+                                                    }}
+                                                    onMouseLeave={() => setHoveredPoint(null)}
+                                                >
+                                                    <g stroke={color} strokeOpacity={0.6} strokeWidth="1">
+                                                        <line x1={cx} y1={yTop} x2={cx} y2={yBottom} />
+                                                        <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} />
+                                                        <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} />
+                                                    </g>
+
+                                                    {isFlagged ? (
+                                                        <>
+                                                            <circle
+                                                                cx={cx}
+                                                                cy={cy}
+                                                                r={4}
+                                                                fill="none"
+                                                                stroke={NOISY_COLOR}
+                                                                strokeWidth="1"
+                                                                pointerEvents="all"
+                                                            />
+                                                            <line
+                                                                x1={cx - 6}
+                                                                y1={cy + 6}
+                                                                x2={cx + 6}
+                                                                y2={cy - 6}
+                                                                stroke={NOISY_COLOR}
+                                                                strokeWidth="1"
+                                                                strokeLinecap="round"
+                                                                className="pointer-events-none"
+                                                            />
+                                                        </>
+                                                    ) : (
+                                                        <circle cx={cx} cy={cy} r={4} fill={bandCol} />
+                                                    )}
+                                                </g>
+                                            );
+                                        })}
+                                    </svg>
+
+                                    {hoveredPoint && (
+                                        <div
+                                            className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg"
+                                            style={{ left: '50%', bottom: '56px' }}
+                                        >
+                                            <div className="font-medium text-accent">
+                                                Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band}{hoveredPoint.detector?.code ? `, ${hoveredPoint.detector.code}` : ""})
+                                            </div>
+                                            <div className="mt-1 text-text">
+                                                Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
+                                            </div>
+                                            <div className="text-muted">
+                                                Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? 0).toFixed(2)}
+                                            </div>
+                                            {hoveredPoint.is_noisy && (
+                                                <div className="mt-1 text-rose-400 font-medium">
+                                                    ⚠ Warning: {hoveredPoint.is_flagged
+                                                    ? "point is flagged as noisy / defective (is_flagged: true)."
+                                                    : `low signal-to-noise (SNR < ${NOISY_SNR}), large uncertainty.`}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-4 border-t border-border pt-4">
+                                    {bandGroups.length > 0 ? (
+                                        <ul className="grid grid-cols-2 gap-x-3 gap-y-4 text-xs text-muted sm:grid-cols-3">
+                                            {bandGroups.map((b) => (
+                                                <li
+                                                    key={b.name}
+                                                    className="flex items-start gap-2"
+                                                    title={`${b.count} points${b.noisy ? `, ${b.noisy} noisy / defective` : ""}`}
+                                                >
+                                                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: b.color }} />
+                                                    <div>
+                                                        <div className="text-text">{b.name}</div>
+                                                        <div className="mt-1">{b.wMin.toFixed(2)}–{b.wMax.toFixed(2)} µm{b.code ? ` · ${b.code}` : ""}</div>
+                                                    </div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    ) : (
+                                        <p className="text-xs text-muted">No measured bands for this pixel.</p>
+                                    )}
+
+                                    <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted">
+                                        <span className="flex items-center gap-2">
+                                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                                                <circle cx="7" cy="7" r="4" stroke={NOISY_COLOR} strokeWidth="1" />
+                                                <line x1="2" y1="12" x2="12" y2="2" stroke={NOISY_COLOR} strokeWidth="1" strokeLinecap="round" />
+                                            </svg>
+                                            Flagged measurement
+                                        </span>
+                                        <span className="text-right">Molecular regions are reference intervals, not detections.</span>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </main>
+                </div>
+            </div>
+
+            {/* Модальное окно Share / Embed */}
+            {shareOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="w-full max-w-md rounded-sm border border-border bg-surface p-5 shadow-xl">
+                        <h3 className="text-sm font-medium text-text">Share or Embed Sky View</h3>
+                        <p className="mt-1 text-xs text-muted">Copy the direct link or HTML embed code for RA {shownRa}°, Dec {shownDec}°.</p>
+
+                        <div className="mt-4 space-y-3">
+                            <div>
+                                <label className="text-[10px] uppercase tracking-wider text-muted">Direct Link</label>
+                                <div className="mt-1 flex gap-2">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={typeof window !== 'undefined' ? window.location.href : ''}
+                                        className="w-full h-8 px-2 rounded-sm border border-border bg-bg text-xs text-text font-mono"
+                                    />
+                                    <button
+                                        onClick={() => navigator.clipboard.writeText(window.location.href)}
+                                        className="h-8 px-3 rounded-sm bg-accent text-bg text-xs cursor-pointer hover:bg-accent-hover"
+                                    >
+                                        Copy
+                                    </button>
                                 </div>
                             </div>
-                        </section>
+
+                            <div>
+                                <label className="text-[10px] uppercase tracking-wider text-muted">Embed HTML</label>
+                                <div className="mt-1 flex gap-2">
+                                    <input
+                                        type="text"
+                                        readOnly
+                                        value={embedCode}
+                                        className="w-full h-8 px-2 rounded-sm border border-border bg-bg text-xs text-text font-mono"
+                                    />
+                                    <button
+                                        onClick={handleCopyEmbed}
+                                        className="h-8 px-3 rounded-sm border border-border bg-raised text-xs text-text cursor-pointer hover:bg-border"
+                                    >
+                                        {copied ? "Copied!" : "Copy"}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex justify-end">
+                            <button
+                                onClick={() => setShareOpen(false)}
+                                className="h-8 px-4 rounded-sm border border-border text-xs text-text hover:bg-raised cursor-pointer"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
-                </main>
-            </div>
-        </div>
+                </div>
+            )}
+
             <Footer />
         </div>
     );
