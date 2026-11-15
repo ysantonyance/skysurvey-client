@@ -4,7 +4,7 @@ import './styles/tokens.css';
 import App from './App.jsx';
 
 async function enableMocking() {
-    if (import.meta.env.VITE_USE_MOCK !== 'true') {
+    if (import.meta.env.USE_MOCK !== 'true') {
         return;
     }
     try {
