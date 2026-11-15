@@ -99,6 +99,8 @@ function friendlyError(msg = "") {
 }
 
 function Home() {
+    const isEmbed = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).has('embed') : false;
+
     const [tab, setTab] = useState("Science");
 
     const [frameData, setFrameData] = useState(null);
@@ -127,7 +129,6 @@ function Home() {
     const [pointError, setPointError] = useState(false);
     const pointReqRef = useRef(0);
 
-    // Состояния для модального окна Share / Embed
     const [shareOpen, setShareOpen] = useState(false);
     const [copied, setCopied] = useState(false);
 
@@ -135,7 +136,8 @@ function Home() {
     const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
     const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
 
-    const embedCode = `<iframe src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed?ra=${shownRa}&dec=${shownDec}&fov=${shownFov}" width="700" height="500" frameborder="0"></iframe>`;
+    const embedUrl = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}?ra=${shownRa}&dec=${shownDec}&fov=${shownFov}&embed=true` : '';
+    const embedCode = `<iframe src="${embedUrl}" width="700" height="600" frameborder="0" style="border-radius: 8px;"></iframe>`;
 
     const handleCopyEmbed = () => {
         navigator.clipboard.writeText(embedCode);
@@ -156,6 +158,20 @@ function Home() {
         setForm(next);
         setQuery(next);
     };
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const urlRa = params.get('ra');
+            const urlDec = params.get('dec');
+            const urlFov = params.get('fov');
+            if (urlRa && urlDec) {
+                const nextForm = { ra: urlRa, dec: urlDec, fov: urlFov || "0.10", band: "all" };
+                setForm(nextForm);
+                setQuery(nextForm);
+            }
+        }
+    }, []);
 
     useEffect(() => {
         const ctrl = new AbortController();
@@ -428,25 +444,27 @@ function Home() {
 
     return (
         <div className="bg-bg text-text">
-            <div className="flex min-h-screen flex-col lg:h-screen">
-                <Header />
+            <div className={`flex min-h-screen flex-col ${isEmbed ? '' : 'lg:h-screen'}`}>
+                {!isEmbed && <Header />}
 
-                <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
-                    <Sidebar
-                        form={form}
-                        onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
-                        errors={errors}
-                        canLoad={canLoad}
-                        loading={loading}
-                        progress={progress}
-                        onLoad={() => setQuery({ ...form })}
-                        presets={PRESETS}
-                        onPreset={loadPreset}
-                        view={view}
-                        onViewChange={onViewChange}
-                        dataRange={frameData?.display?.data_range}
-                        autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
-                    />
+                <div className={`grid flex-1 grid-cols-1 ${isEmbed ? '' : 'lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]'}`}>
+                    {!isEmbed && (
+                        <Sidebar
+                            form={form}
+                            onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+                            errors={errors}
+                            canLoad={canLoad}
+                            loading={loading}
+                            progress={progress}
+                            onLoad={() => setQuery({ ...form })}
+                            presets={PRESETS}
+                            onPreset={loadPreset}
+                            view={view}
+                            onViewChange={onViewChange}
+                            dataRange={frameData?.display?.data_range}
+                            autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
+                        />
+                    )}
 
                     <main className="min-w-0 p-4 lg:overflow-y-auto">
                         <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
@@ -454,15 +472,18 @@ function Home() {
                                 <h1 className="text-base">Sky position &amp; spectrum</h1>
                                 <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
                             </div>
-                            <div>
-                                <button
-                                    onClick={() => setShareOpen(true)}
-                                    className="h-8 px-3 rounded-sm border border-border bg-surface text-xs text-text hover:bg-raised transition cursor-pointer flex items-center gap-1.5"
-                                >
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
-                                    Share / Embed
-                                </button>
-                            </div>
+
+                            {!isEmbed && (
+                                <div>
+                                    <button
+                                        onClick={() => setShareOpen(true)}
+                                        className="h-8 px-3 rounded-sm border border-border bg-surface text-xs text-text hover:bg-raised transition cursor-pointer flex items-center gap-1.5"
+                                    >
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                                        Share / Embed
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
@@ -967,7 +988,6 @@ function Home() {
                 </div>
             </div>
 
-            {/* Модальное окно Share / Embed */}
             {shareOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
                     <div className="w-full max-w-md rounded-sm border border-border bg-surface p-5 shadow-xl">
@@ -1024,7 +1044,7 @@ function Home() {
                 </div>
             )}
 
-            <Footer />
+            {!isEmbed && <Footer />}
         </div>
     );
 }
