@@ -399,7 +399,6 @@ function Home() {
     const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
     const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
 
-    // Задача C8: Компактный вид для режима встраивания (/embed)
     if (isEmbed) {
         return (
             <div className="flex flex-col h-screen bg-bg p-3 text-text select-none">
@@ -421,10 +420,10 @@ function Home() {
     }
 
     return (
-        <div className="flex min-h-screen flex-col bg-bg text-text lg:h-screen lg:overflow-hidden">
+        <div className="flex min-h-screen flex-col bg-bg text-text">
             <Header />
 
-            <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="grid flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]">
                 <Sidebar
                     form={form}
                     onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
@@ -441,15 +440,14 @@ function Home() {
                     autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
                 />
 
-                <main className="min-w-0 p-4 lg:overflow-y-auto">
-                    <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-center">
+                <main className="min-w-0 p-3 sm:p-4">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                         <div>
-                            <h1 className="text-base">Sky position &amp; spectrum</h1>
+                            <h1 className="text-base font-medium">Sky position &amp; spectrum</h1>
                             <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Кнопка Share view (C7) */}
+                        <div className="flex flex-wrap items-center gap-2">
                             <button
                                 onClick={handleShare}
                                 className="flex items-center gap-1.5 rounded-sm border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs text-accent transition hover:bg-accent/25 cursor-pointer"
@@ -458,7 +456,6 @@ function Home() {
                                 {copied ? "Link copied!" : "Share view"}
                             </button>
 
-                            {/* Кнопка Embed (C8) */}
                             <button
                                 onClick={() => setShowEmbedModal(true)}
                                 className="flex items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-1.5 text-xs text-text transition hover:bg-raised cursor-pointer"
@@ -469,7 +466,6 @@ function Home() {
                         </div>
                     </div>
 
-                    {/* Модальное окно генерации iframe (C8) */}
                     {showEmbedModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
                             <div className="w-full max-w-lg rounded-sm border border-border bg-surface p-5 shadow-2xl">
@@ -512,14 +508,14 @@ function Home() {
                                 )}
                             </div>
 
-                            <div role="tablist" className="flex gap-1 text-xs">
+                            <div role="tablist" className="flex flex-wrap gap-1 text-xs">
                                 {TABS.map((t) => (
                                     <button
                                         key={t}
                                         role="tab"
                                         aria-selected={tab === t}
                                         onClick={() => setTab(t)}
-                                        className={`h-8 flex-1 rounded-sm border px-2 transition-hover ${
+                                        className={`h-8 flex-1 min-w-[70px] rounded-sm border px-2 transition-hover ${
                                             tab === t ? "border-accent bg-accent/15" : "border-transparent text-muted hover:bg-raised"
                                         }`}
                                     >
@@ -627,7 +623,7 @@ function Home() {
                                 <span>Wheel to zoom · Drag to pan</span>
                             </div>
 
-                            <div className="flex items-center justify-between mt-2">
+                            <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={handlePlayToggle}
@@ -700,7 +696,7 @@ function Home() {
                                 />
                             </div>
 
-                            <div className="flex gap-2 mt-2">
+                            <div className="flex flex-wrap gap-2 mt-2">
                                 {frameData?.epochs ? (
                                     frameData.epochs.map((ep, i) => (
                                         <button
@@ -709,7 +705,7 @@ function Home() {
                                                 setIsPlaying(false);
                                                 setCurrentIndex(i);
                                             }}
-                                            className={`h-10 rounded-sm border px-4 text-xs transition-hover cursor-pointer ${
+                                            className={`h-10 flex-1 min-w-[70px] rounded-sm border px-2 text-xs transition-hover cursor-pointer ${
                                                 currentIndex === i ? "border-accent bg-accent/15 text-accent" : "border-border hover:bg-raised text-muted"
                                             }`}
                                         >
@@ -729,7 +725,7 @@ function Home() {
 
                         <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
                             <div className="flex items-start justify-between gap-2">
-                                <h2 className="text-2xl">Object spectrum</h2>
+                                <h2 className="text-xl sm:text-2xl font-medium">Object spectrum</h2>
                                 <Badge>Illustrative data</Badge>
                             </div>
                             <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
@@ -758,10 +754,10 @@ function Home() {
                                 />
                             </div>
 
-                            <div className={`relative mt-4 w-full select-none ${pointLoading ? "opacity-50" : ""}`}>
+                            <div className={`relative mt-4 w-full select-none overflow-x-auto ${pointLoading ? "opacity-50" : ""}`}>
                                 <svg
                                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                                    className="w-full h-auto overflow-visible"
+                                    className="w-full h-auto min-w-[300px] overflow-visible"
                                 >
                                     <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} className="fill-bg" />
 
