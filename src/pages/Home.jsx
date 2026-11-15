@@ -568,7 +568,7 @@ function Home() {
                                     </svg>
                                 </div>
 
-                                <div className="absolute bottom-5 right-5 px-2 py-1 pointer-events-none">
+                                <div className="absolute bottom-2 right-2 px-2 py-1 pointer-events-none">
                                     <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
                                     </svg>
