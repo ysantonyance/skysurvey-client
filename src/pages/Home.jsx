@@ -543,7 +543,7 @@ function Home() {
                                 )}
                             </div>
 
-                            <div className="flex items-center justify-between mt-2">
+                            <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
                                 <div className="flex items-center gap-2">
                                     <button
                                         onClick={handlePlayToggle}
@@ -646,7 +646,7 @@ function Home() {
                         {/* Блок спектра со свойством self-start, чтобы он не растягивался на всю высоту родителя */}
                         <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
                             <div className="flex items-start justify-between gap-2">
-                                <h2 className="text-2xl">Object spectrum</h2>
+                                <h2 className="text-xl sm:text-2xl font-medium">Object spectrum</h2>
                             </div>
                             <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
                             <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
