@@ -1,5 +1,6 @@
 import { SlidersHorizontal, ChevronDown, Check, RefreshCw } from "lucide-react";
 import { CoordinateInput } from "./CoordinateInput.jsx";
+import {InfoTip} from "./Infotip.jsx";
 import { Action } from "./Action.jsx";
 import {Select} from "./Select.jsx";
 import {useState} from "react";
@@ -20,19 +21,23 @@ function Section({ title, children, defaultOpen = true }) {
         </details>
     );
 }
-function Checkbox({ label, ...rest }) {
+
+function Checkbox({ label, info, ...rest }) {
     return (
-        <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
-            <span className="relative grid h-4 w-4 shrink-0 place-items-center">
-                <input
-                    type="checkbox"
-                    {...rest}
-                    className="peer absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-sm border border-border bg-bg transition-hover checked:border-[#C79AFF] checked:bg-[#C79AFF] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                />
-                <Check size={12} aria-hidden className="pointer-events-none relative text-bg opacity-0 peer-checked:opacity-100" />
-            </span>
-            {label}
-        </label>
+        <div className="flex items-center gap-2">
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
+                <span className="relative grid h-4 w-4 shrink-0 place-items-center">
+                    <input
+                        type="checkbox"
+                        {...rest}
+                        className="peer absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-sm border border-border bg-bg transition-hover checked:border-[#C79AFF] checked:bg-[#C79AFF] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    />
+                    <Check size={12} aria-hidden className="pointer-events-none relative text-bg opacity-0 peer-checked:opacity-100" />
+                </span>
+                {label}
+            </label>
+            {info}
+        </div>
     );
 }
 
@@ -105,21 +110,46 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
                 <div className="grid grid-cols-2 gap-2">
                     <CoordinateInput label="RA · degrees" value={form.ra} error={errors.ra}
                                      onChange={(e) => onChange({ ra: e.target.value })}
-                                     placeholder=" " inputClassName="!text-xs !px-2" />
+                                     placeholder=" " inputClassName="!text-xs !px-2"
+                                     info={
+                                         <InfoTip title="Right ascension (RA)">
+                                             <p>The sky's "longitude": the east-west position of the target.</p>
+                                             <p>Range: 0° to under 360°.</p>
+                                         </InfoTip>
+                                     } />
                     <CoordinateInput label="Dec · degrees" value={form.dec} error={errors.dec}
                                      onChange={(e) => onChange({ dec: e.target.value })}
-                                     placeholder=" " inputClassName="!text-xs !px-2" />
+                                     placeholder=" " inputClassName="!text-xs !px-2"
+                                     info={
+                                         <InfoTip title="Declination (Dec)" align="right">
+                                             <p>The sky's "latitude": the north-south position of the target.</p>
+                                             <p>Range: -90° (south pole) to +90° (north pole).</p>
+                                         </InfoTip>
+                                     } />
                 </div>
 
                 <Select label="Field of view" value={form.fov}
                         onValueChange={(v) => onChange({ fov: v })}
-                        options={[
-                            { value: "0.10", label: "0.10° · Standard" },
-                            { value: "0.25", label: "0.25° · Wide" },
-                        ]} />
+                        info={
+                            <InfoTip title="Field of view">
+                                <p>Side of the square sky patch around the target, in degrees.</p>
+                                <p>A larger field shows more stars, each smaller. Larger fields take longer to load.</p>
+                            </InfoTip>
+                        }
+                        options={[{ value: "0.10", label: "0.10° · Standard" },
+                            { value: "0.25", label: "0.25° · Wide" } ]} />
 
                 <Select label="Infrared filter" value={form.band}
                         onValueChange={(v) => onChange({ band: v })}
+                        info={
+                            <InfoTip title="Infrared filter">
+                                <p>Which part of the SPHEREx spectrum builds the image.</p>
+                                <p><b className="font-normal text-text">All channels</b>: 0.75–5.0 µm.</p>
+                                <p><b className="font-normal text-text">Band 1–6</b>: one detector each, from the shortest (0.75 µm) to the longest (5.0 µm) wavelengths.</p>
+                                <p><b className="font-normal text-text">Blue / Red</b>: groups of short and long wavelengths.</p>
+                                <p>Long IR emphasizes cool sources.</p>
+                            </InfoTip>
+                        }
                         options={[
                             { value: "all",  label: "All channels" },
                             { value: "blue", label: "Blue" },
@@ -137,26 +167,60 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
                     Load patch
                 </Action>
                 {loading && <ProgressBar stage={progress?.stage} percent={progress?.percent} />}
-                <p className="text-xs text-muted">Long IR emphasizes cool sources. Larger fields take longer to load.</p>
             </Section>
 
             <Section title="Image layers">
                 <div className="flex flex-col gap-4">
                     <Checkbox label="Gaia DR3 catalog" checked={view.gaia}
-                              onChange={(e) => onViewChange({ gaia: e.target.checked })} />
+                              onChange={(e) => onViewChange({ gaia: e.target.checked })}
+                              info={
+                                  <InfoTip title="Gaia DR3 catalog">
+                                      <p>Circles mark stars already known from the Gaia DR3 star catalog.</p>
+                                      <p>If a bright source has no circle, it is not in Gaia. That can hint at a very red or cool object.</p>
+                                      <p>No circles at all means the catalog has no sources in this field.</p>
+                                  </InfoTip>
+                              } />
+
                     <Checkbox label="Motion & variability" checked={view.motion}
-                              onChange={(e) => onViewChange({ motion: e.target.checked })} />
+                              onChange={(e) => onViewChange({ motion: e.target.checked })}
+                              info={
+                                  <InfoTip title="Motion & variability">
+                                      <p>Dashed arrows show a source that moved between observation epochs, from its old to its new position.</p>
+                                      <p>Squares with a name mark known asteroids and comets in the field.</p>
+                                      <p>Nothing is drawn if no motion was detected.</p>
+                                  </InfoTip>
+                              } />
+
                     <Checkbox label="Center crosshair · 10″ radius" checked={view.crosshair}
-                              onChange={(e) => onViewChange({ crosshair: e.target.checked })} />
+                              onChange={(e) => onViewChange({ crosshair: e.target.checked })}
+                              info={
+                                  <InfoTip title="Center crosshair">
+                                      <p>Marks the exact RA/Dec you entered, at the center of the image.</p>
+                                      <p>The circle has a radius of 10 arcseconds. The spectrum on the right is measured around this point.</p>
+                                  </InfoTip>
+                              } />
                 </div>
 
                 <div className="flex flex-col gap-4 rounded-sm border border-border p-3">
                     <Checkbox label="Defect mask" checked={view.defect}
-                              onChange={(e) => onViewChange({ defect: e.target.checked })} />
+                              onChange={(e) => onViewChange({ defect: e.target.checked })}
+                              info={
+                                  <InfoTip title="Defect mask">
+                                      <p>A semi-transparent layer over the image that flags pixels the pipeline marks as unreliable.</p>
+                                      <p>Red: bad or saturated pixels. Green: pixels belonging to a detected source.</p>
+                                      <p>Clean pixels stay transparent.</p>
+                                  </InfoTip>
+                              } />
 
                     <div className={`flex flex-col gap-3 transition-state ${view.defect ? "" : "opacity-40"}`}>
                         <div className="flex items-center justify-between text-xs text-muted">
-                            <label htmlFor="mask-opacity">Mask opacity</label>
+                            <div className="flex items-center gap-1">
+                                <label htmlFor="mask-opacity">Mask opacity</label>
+                                <InfoTip title="Mask opacity">
+                                    <p>How strongly the defect mask is drawn over the image.</p>
+                                    <p>Works only while Defect mask is on. Lower it to see the image underneath.</p>
+                                </InfoTip>
+                            </div>
                             <span className="text-[#D5B6FF]">{view.opacity}%</span>
                         </div>
                         <input id="mask-opacity" type="range" min={0} max={100}
@@ -176,6 +240,14 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
             <Section title="Brightness & contrast">
                 <Select label="Stretch algorithm" value={view.stretch}
                         onValueChange={(v) => onViewChange({ stretch: v })}
+                        info={
+                            <InfoTip title="Stretch algorithm">
+                                <p>How pixel brightness is mapped to the grey levels you see. It changes how faint and bright sources are balanced.</p>
+                                <p><b className="font-normal text-text">Linear</b>: brightness shown as is.</p>
+                                <p><b className="font-normal text-text">Sqrt, Log, Asinh</b>: progressively lift faint sources while keeping bright ones from washing out.</p>
+                                <p><b className="font-normal text-text">ZScale</b>: automatic limits based on the image noise.</p>
+                            </InfoTip>
+                        }
                         options={[
                             { value: "asinh", label: "Asinh" },
                             { value: "linear", label: "Linear" },
@@ -185,7 +257,14 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
                         ]} />
 
                 <div className="flex flex-col gap-3 rounded-sm border border-border p-3">
-                    <p className="text-xs text-muted">Black / white cut</p>
+                    <div className="flex items-center gap-1 text-xs text-muted">
+                        <p>Black / white cut</p>
+                        <InfoTip title="Black / white cut">
+                            <p><b className="font-normal text-text">Black</b>: the brightness at or below which pixels are shown black.</p>
+                            <p><b className="font-normal text-text">White</b>: the brightness at or above which pixels are shown white.</p>
+                            <p>Lowering White makes faint sources brighter. Narrowing the range raises contrast. Units: MJy/sr.</p>
+                        </InfoTip>
+                    </div>
                     <div className="flex justify-between text-xs">
                         <span className="text-muted">Black <span className="text-[#D5B6FF]">{cut[0].toFixed(3)}</span></span>
                         <span className="text-muted">White <span className="text-[#D5B6FF]">{cut[1].toFixed(3)}</span></span>
@@ -196,7 +275,14 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
 
                 <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between text-xs text-muted">
-                        <label htmlFor="softness">Asinh softness</label>
+                        <div className="flex items-center gap-1">
+                            <label htmlFor="softness">Asinh softness</label>
+                            <InfoTip title="Asinh softness">
+                                <p>Controls how strongly the Asinh stretch lifts faint light.</p>
+                                <p>A smaller value boosts faint sources more. A larger one is closer to linear.</p>
+                                <p>Has an effect only when the Asinh algorithm is selected.</p>
+                            </InfoTip>
+                        </div>
                         <span className="text-[#D5B6FF]">{view.softness}</span>
                     </div>
                     <input id="softness" type="range" min={0.01} max={1} step={0.01} value={view.softness}
@@ -204,7 +290,14 @@ export function Sidebar({ form, onChange, errors, canLoad, loading, progress, on
                            style={{ "--pct": `${view.softness * 100}%` }} className="range" />
                 </div>
 
-                <Checkbox label="Invert base image" checked={view.invert} onChange={(e) => onViewChange({ invert: e.target.checked })} />
+                <Checkbox label="Invert base image" checked={view.invert}
+                          onChange={(e) => onViewChange({ invert: e.target.checked })}
+                          info={
+                              <InfoTip title="Invert base image">
+                                  <p>Swaps black and white: stars look dark on a light background, which can make faint sources easier to see.</p>
+                                  <p>Applies only to the base image, not to the mask or markers.</p>
+                              </InfoTip>
+                          } />
 
                 <Action icon={<RefreshCw size={16} />}
                         className="w-full text-xs! bg-[#C79AFF]! hover:bg-accent/90! text-black!"

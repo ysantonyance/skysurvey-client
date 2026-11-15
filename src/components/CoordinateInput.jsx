@@ -1,14 +1,7 @@
 import { useId } from "react";
 
-export function CoordinateInput({
-                                    label,
-                                    hint,
-                                    error,          // рядок з текстом помилки
-                                    loading = false,
-                                    loadingHint,    // підказка під полем у стані loading
-                                    disabled = false,
-                                    className = "",
-                                    inputClassName = "",
+export function CoordinateInput({ label, hint, error, loading = false, loadingHint,
+                                    disabled = false, className = "", inputClassName = "", info,
                                     ...rest
                                 }) {
     const id = useId();
@@ -21,9 +14,12 @@ export function CoordinateInput({
 
     return (
         <div className={`flex flex-col gap-1 ${className}`}>
-            <label htmlFor={id} className="text-xs text-muted">
-                {label}
-            </label>
+            <div className="flex items-center gap-1">
+                <label htmlFor={id} className="text-xs text-muted">
+                    {label}
+                </label>
+                {info}
+            </div>
 
             <input
                 id={id}

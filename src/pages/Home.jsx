@@ -543,13 +543,6 @@ function Home() {
                                 )}
                             </div>
 
-                            <p className="text-xs text-muted">Click the image to load the spectrum for that position.</p>
-
-                            <div className="flex items-center justify-between text-xs text-muted">
-                                <span>− &nbsp; 100% &nbsp; +</span>
-                                <span>Wheel to zoom · Drag to pan</span>
-                            </div>
-
                             <div className="flex items-center justify-between mt-2">
                                 <div className="flex items-center gap-2">
                                     <button
@@ -654,7 +647,6 @@ function Home() {
                         <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
                             <div className="flex items-start justify-between gap-2">
                                 <h2 className="text-2xl">Object spectrum</h2>
-                                <Badge>Illustrative data</Badge>
                             </div>
                             <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
                             <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
