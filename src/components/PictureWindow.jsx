@@ -1,42 +1,92 @@
-import { useEffect, useState, useRef } from 'react';
+import { useState, useEffect, useRef } from "react";
+import { Header } from "../components/Header.jsx";
+import { Sidebar } from "../components/Sidebar.jsx";
 
-function PictureWindow({ imageUrl }) {
+const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
+
+// Центр поля, для которого грузится картинка и спектр по умолчанию
+const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
+
+// Точка считается шумной, если бэкенд пометил её is_flagged
+// или если отношение сигнал/шум ниже этого порога
+const NOISY_SNR = 1;
+
+// Цвет шумных / дефектных точек
+const NOISY_COLOR = "#A49DAF";
+
+const targetUrl = (ra, dec) =>
+    `http://127.0.0.1:8000/api/v1/target?ra=${ra}&dec=${dec}&fov=${CENTER.fov}&band=all`;
+
+function Badge({ children }) {
+    return (
+        <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
+    );
+}
+
+// Пиксель на картинке (0..512) -> небесные координаты по WCS из display.wcs
+function pixelToRaDec(pixelX, pixelY, wcs) {
+    const crval1 = Number(wcs.CRVAL1);
+    const crval2 = Number(wcs.CRVAL2);
+    const crpix1 = Number(wcs.CRPIX1);
+    const crpix2 = Number(wcs.CRPIX2);
+    const cdelt1 = Number(wcs.CDELT1);
+    const cdelt2 = Number(wcs.CDELT2);
+
+    const dx = pixelX + 1.0 - crpix1;
+    const dy = pixelY + 1.0 - crpix2;
+
+    const dec = crval2 + dy * cdelt2;
+    const cosDec = Math.cos((crval2 * Math.PI) / 180.0) || 1.0;
+    const ra = (crval1 + (dx * cdelt1) / cosDec + 360.0) % 360.0;
+
+    return { ra: Number(ra.toFixed(6)), dec: Number(dec.toFixed(6)) };
+}
+
+function Home() {
+    const [tab, setTab] = useState("Science");
+
     const [frameData, setFrameData] = useState(null);
     const [loading, setLoading] = useState(true);
-
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentIndex, setCurrentIndex] = useState(0);
-    const [intervalMs, setIntervalMs] = useState(100); // скорость по умолчанию
+    const [intervalMs, setIntervalMs] = useState(100);
 
-    const frames = frameData?.images || [
-        imageUrl || "https://picsum.photos/620/620?random=1",
-        "https://picsum.photos/620/620?random=2",
-        "https://picsum.photos/620/620?random=3",
-        "https://picsum.photos/620/620?random=4",
-        "https://picsum.photos/620/620?random=5",
-        "https://picsum.photos/620/620?random=6",
-        "https://picsum.photos/620/620?random=7",
-        "https://picsum.photos/620/620?random=8",
-    ];
+    const [hideNoisy, setHideNoisy] = useState(false);
+    const [connectPoints, setConnectPoints] = useState(true);
+    const [hoveredPoint, setHoveredPoint] = useState(null);
+    const [showBands, setShowBands] = useState(true);
 
-    const totalFrames = frames.length;
-    const preloadedImagesRef = useRef([]);
+    // Выбранная кликом точка на картинке и её спектр
+    const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
+    const [pointData, setPointData] = useState(null);
+    const [pointLoading, setPointLoading] = useState(false);
+    const [pointError, setPointError] = useState(false);
+    const pointReqRef = useRef(0);
 
     useEffect(() => {
-        fetch('http://127.0.0.1:8000/api/v1/target?ra=269.4485&dec=4.7394&fov=0.1&band=all')
-            .then((res) => res.json())
+        fetch(targetUrl(CENTER.ra, CENTER.dec))
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                return res.json();
+            })
             .then((data) => {
                 setFrameData(data);
                 setLoading(false);
             })
             .catch((err) => {
-                console.error('Error loading data:', err);
+                console.error('Error loading data from backend:', err);
                 setLoading(false);
             });
     }, []);
 
+    const frames = frameData?.epochs?.map(
+        (epoch) => epoch.layers?.image
+    ).filter(Boolean) || [];
+
+    const totalFrames = frames.length;
+    const preloadedImagesRef = useRef([]);
+
     useEffect(() => {
-        // Предзагрузка в кэш браузера
         preloadedImagesRef.current = frames.map((src) => {
             const img = new Image();
             img.src = src;
@@ -71,180 +121,579 @@ function PictureWindow({ imageUrl }) {
         else setIntervalMs(50);
     };
 
-    if (loading) {
-        return (
-            <div className="bg-[var(--color-background)] text-[var(--color-muted)] font-[family-name:var(--font-body)] min-h-screen flex items-center justify-center">
-                Loading data...
-            </div>
-        );
-    }
+    // Клик по картинке: пиксель -> RA/Dec (по display.wcs) -> запрос спектра этой точки.
+    // Эндпоинт /target/spectrum отдаёт только спектр, без пересчёта снимков.
+    const handleImageClick = (e) => {
+        const display = frameData?.display;
+        if (!display?.wcs) return;
+
+        const rect = e.currentTarget.getBoundingClientRect();
+        const fx = (e.clientX - rect.left) / rect.width;   // 0..1 слева направо
+        const fy = (e.clientY - rect.top) / rect.height;   // 0..1 сверху вниз
+
+        // пиксель в системе 512x512, как в display.wcs
+        const px = fx * (display.width ?? 512);
+        const py = fy * (display.height ?? 512);
+        const { ra, dec } = pixelToRaDec(px, py, display.wcs);
+
+        setSelected({ ra, dec, fx, fy });
+        setPointLoading(true);
+        setPointError(false);
+
+        // защита от гонки: учитываем только ответ на последний клик
+        const reqId = ++pointReqRef.current;
+        fetch(`http://127.0.0.1:8000/api/v1/target/spectrum?ra=${ra}&dec=${dec}`)
+            .then((res) => {
+                if (!res.ok) throw new Error(`HTTP error: ${res.status}`);
+                return res.json();
+            })
+            .then((data) => {
+                if (reqId === pointReqRef.current) setPointData(data);
+            })
+            .catch((err) => {
+                console.error('Error loading point spectrum:', err);
+                if (reqId === pointReqRef.current) {
+                    setPointData(null);
+                    setPointError(true);
+                }
+            })
+            .finally(() => {
+                if (reqId === pointReqRef.current) setPointLoading(false);
+            });
+    };
+
+    // Спектр: для выбранной точки, иначе для центра поля
+    const rawPoints =
+        pointData?.chart_data ??
+        frameData?.spectrum_data?.chart_data ??
+        frameData?.spectrum?.points ??
+        [];
+
+    const rawSpectrum = rawPoints
+        .filter((p) => p.flux !== null && p.flux !== undefined)
+        .map((p) => {
+            const flux_error = p.flux_error ?? p.error ?? 0;
+            const snr = p.snr ?? (flux_error ? Math.abs(p.flux / flux_error) : 0);
+            return {
+                ...p,
+                wavelength: p.wavelength_um,
+                flux_error,
+                snr,
+                band: p.band ?? `Band ${p.detector}`,
+                is_noisy: p.is_flagged === true || snr < NOISY_SNR,
+            };
+        });
+
+    const noisyCount = rawSpectrum.filter((p) => p.is_noisy).length;
+
+    const spectrumPoints = rawSpectrum
+        .filter(p => !(hideNoisy && p.is_noisy))
+        .sort((a, b) => a.wavelength - b.wavelength);
+
+    const minWavelength = 0.75;
+    const maxWavelength = 5.0;
+    const chartWidth = 700;
+    const chartHeight = 280;
+    const padding = { top: 35, right: 30, bottom: 40, left: 65 };
+    const plotWidth = chartWidth - padding.left - padding.right;
+    const plotHeight = chartHeight - padding.top - padding.bottom;
+
+    const allFluxes = rawSpectrum.length > 0 ? rawSpectrum.flatMap(p => [p.flux + (p.flux_error ?? 0), p.flux - (p.flux_error ?? 0)]) : [-50, 250];
+    const minY = Math.min(0, ...allFluxes) * 1.1;
+    const maxY = Math.max(10, ...allFluxes) * 1.1;
+
+    const scaleX = (w) => padding.left + ((w - minWavelength) / (maxWavelength - minWavelength)) * plotWidth;
+    const scaleY = (f) => padding.top + plotHeight - ((f - minY) / (maxY - minY)) * plotHeight;
+
+    const findBands = (node) => {
+        if (!node || typeof node !== "object") return null;
+        if (Array.isArray(node) && node[0]?.range_um) return node;
+        for (const v of Object.values(node)) {
+            const found = findBands(v);
+            if (found) return found;
+        }
+        return null;
+    };
+    const bands = findBands(frameData) ?? [];
+
+    const detectorBands = [
+        { code: "D1", name: "Band 1", min: 0.75, max: 1.1, color: "#E8D9FF" },
+        { code: "D2", name: "Band 2", min: 1.1, max: 1.6, color: "#D2B0F8" },
+        { code: "D3", name: "Band 3", min: 1.6, max: 2.4, color: "#B99BEB" },
+        { code: "D4", name: "Band 4", min: 2.4, max: 3.8, color: "#D29BD2" },
+        { code: "D5", name: "Band 5", min: 3.8, max: 4.4, color: "#B7A7EE" },
+        { code: "D6", name: "Band 6", min: 4.4, max: 5.0, color: "#DAB5E7" },
+    ];
+
+    const sub = (s) => s.replace(/\d/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[d]);
+
+    const getDetectorForWavelength = (w) => {
+        const found = detectorBands.find(b => w >= b.min && w <= b.max);
+        return found || detectorBands[0];
+    };
+
+    // Что реально измерено в выбранном пикселе по каждому детекторному бэнду
+    const bandStats = detectorBands.map((b) => {
+        const pts = rawSpectrum.filter((p) => getDetectorForWavelength(p.wavelength).code === b.code);
+        const ws = pts.map((p) => p.wavelength);
+        return {
+            ...b,
+            count: pts.length,
+            noisy: pts.filter((p) => p.is_noisy).length,
+            wMin: ws.length ? Math.min(...ws) : null,
+            wMax: ws.length ? Math.max(...ws) : null,
+        };
+    });
+
+    const shownRa = (selected?.ra ?? CENTER.ra).toFixed(6);
+    const shownDec = (selected?.dec ?? CENTER.dec).toFixed(6);
 
     return (
-        <div className="bg-[var(--color-background)] text-[var(--color-foreground)] font-[family-name:var(--font-body)] min-h-screen p-8 flex flex-col items-center">
+        <div className="flex min-h-screen flex-col bg-bg text-text lg:h-screen lg:overflow-hidden">
+            <Header />
 
-            <div className="w-[620px] flex items-center justify-between mb-4">
-                <div className="flex flex-col gap-0.5">
-                    <span className="text-lg text-[var(--color-foreground)]">Current sky patch</span>
-                    <span className="text-xs text-[var(--color-muted)] flex items-center gap-2">
-                        <span>RA 133.786245° / Dec -7.244372°</span>
-                        <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                            <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
-                        </svg>
-                        <span>176° field</span>
-                    </span>
-                </div>
+            <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
+                <Sidebar />
 
-                <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
-                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <g clipPath="url(#clip0_60_17051)">
-                            <path d="M14.6663 8.00004C14.6663 11.6819 11.6816 14.6667 7.99967 14.6667C4.31778 14.6667 1.33301 11.6819 1.33301 8.00004C1.33301 4.31814 4.31778 1.33337 7.99967 1.33337C11.6816 1.33337 14.6663 4.31814 14.6663 8.00004Z" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" stroke="#BAACCB"/>
-                            <path d="M8 10.6667V8" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" stroke="#BAACCB"/>
-                            <path d="M8 5.33337H8.00667" strokeWidth="1.16667" strokeLinecap="round" strokeLinejoin="round" stroke="#BAACCB"/>
-                        </g>
-                        <defs>
-                            <clipPath id="clip0_60_17051">
-                                <rect width="16" height="16" fill="white"/>
-                            </clipPath>
-                        </defs>
-                    </svg>
-                    <span>Simulated images</span>
-                </div>
-            </div>
-
-            <div className="relative w-[620px] h-[620px] bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden shadow-sm">
-                <img
-                    src={frames[currentIndex]}
-                    alt={`Observation frame ${currentIndex + 1}`}
-                    className="w-full h-full object-cover"
-                />
-
-                <div className="absolute top-[8px] left-[8px] px-2 py-1 pointer-events-none">
-                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M0.5 32V0.5H32" stroke="#D5B6FF" strokeWidth="1.5"/>
-                    </svg>
-                </div>
-
-                <div className="absolute bottom-[20px] right-[20px] px-2 py-1 pointer-events-none">
-                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
-                    </svg>
-                </div>
-            </div>
-
-            <div className="w-[620px] flex items-center justify-between text-xs mt-3 text-[var(--color-accent)]">
-                <div className="flex items-center gap-2">
-                    <span className="text-[var(--color-muted)]">SPHEREx design preview</span>
-                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1" cy="1" r="1" fill="#AD96C5"/>
-                    </svg>
-                    <span className="text-[var(--color-muted)]">Band 3</span>
-                </div>
-                <div className="flex items-center gap-2 text-[var(--color-muted)]">
-                    <span>North up</span>
-                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
-                    </svg>
-                    <span>East left</span>
-                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1" cy="1" r="1" fill="#ACA3B7"/>
-                    </svg>
-                    <span>Illustrative alignment</span>
-                </div>
-            </div>
-
-            <div className="w-[620px] flex items-center justify-between mt-6">
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={handlePlayToggle}
-                        className="w-[var(--spacing-target)] h-[var(--spacing-target)] bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] rounded-[var(--radius-control)] flex items-center justify-center transition cursor-pointer"
-                        aria-label="Play or Stop">
-                        {isPlaying ? (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="#170D26"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                        ) : (
-                            <svg width="15" height="17" viewBox="0 0 15 17" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M0.729492 2.39635C0.729405 2.10309 0.806697 1.815 0.953562 1.56117C1.10043 1.30734 1.31167 1.09676 1.56595 0.950678C1.82024 0.8046 2.10856 0.728201 2.40182 0.729197C2.69507 0.730192 2.98287 0.808546 3.23616 0.956348L13.2337 6.78801C13.486 6.93441 13.6954 7.14447 13.8411 7.39718C13.9868 7.6499 14.0636 7.93643 14.0639 8.22813C14.0641 8.51983 13.9878 8.80649 13.8426 9.05946C13.6973 9.31243 13.4882 9.52284 13.2362 9.66968L3.23616 15.503C2.98287 15.6508 2.69507 15.7292 2.40182 15.7302C2.10856 15.7312 1.82024 15.6548 1.56595 15.5087C1.31167 15.3626 1.10043 15.152 0.953562 14.8982C0.806697 14.6444 0.729405 14.3563 0.729492 14.063V2.39635Z" fill="#170D26"/>
-                            </svg>
-                        )}
-                    </button>
-
-                    <button
-                        onClick={handlePrevFrame}
-                        className="w-[var(--spacing-target)] h-[var(--spacing-target)] flex items-center justify-center transition cursor-pointer text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
-                        aria-label="Previous frame">
-                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M14.9757 3.57083C15.2286 3.41908 15.5172 3.33717 15.8121 3.33345C16.1071 3.32972 16.3977 3.40433 16.6543 3.54965C16.911 3.69497 17.1245 3.90579 17.273 4.16059C17.4216 4.4154 17.4998 4.70506 17.4998 5V15C17.4998 15.2949 17.4216 15.5846 17.273 15.8394C17.1245 16.0942 16.911 16.305 16.6543 16.4503C16.3977 16.5957 16.1071 16.6703 15.8121 16.6665C15.5172 16.6628 15.2286 16.5809 14.9757 16.4292L6.64484 11.4308C6.39753 11.2831 6.19275 11.0737 6.05047 10.8232C5.90818 10.5727 5.83326 10.2896 5.83301 10.0015C5.83276 9.71345 5.90718 9.43022 6.04903 9.17947C6.19087 8.92872 6.39529 8.71902 6.64234 8.57083L14.9757 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                            <path d="M2.5 16.6666V3.33331" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                        </svg>
-                    </button>
-
-                    <button
-                        onClick={handleNextFrame}
-                        className="w-[var(--spacing-target)] h-[var(--spacing-target)] flex items-center justify-center transition cursor-pointer text-[var(--color-muted)] hover:text-[var(--color-foreground)]"
-                        aria-label="Next frame">
-                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M17.5 3.33331V16.6666" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                            <path d="M5.02417 3.57083C4.77126 3.41908 4.48261 3.33717 4.18769 3.33345C3.89278 3.32972 3.60216 3.40433 3.3455 3.54965C3.08884 3.69497 2.87534 3.90579 2.7268 4.16059C2.57826 4.4154 2.5 4.70506 2.5 5V15C2.5 15.2949 2.57826 15.5846 2.7268 15.8394C2.87534 16.0942 3.08884 16.305 3.3455 16.4503C3.60216 16.5957 3.89278 16.6703 4.18769 16.6665C4.48261 16.6628 4.77126 16.5809 5.02417 16.4292L13.355 11.4308C13.6023 11.2831 13.8071 11.0737 13.9494 10.8232C14.0917 10.5727 14.1666 10.2896 14.1668 10.0015C14.1671 9.71345 14.0927 9.43022 13.9508 9.17947C13.809 8.92872 13.6045 8.71902 13.3575 8.57083L5.02417 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
-                        </svg>
-                    </button>
-
-                    <select
-                        onChange={handleSpeedChange}
-                        className="bg-[var(--color-background)] text-[var(--color-foreground)] border border-[var(--color-border)] h-[var(--spacing-target)] px-3 text-sm focus:outline-none focus:ring-[var(--color-focus)] cursor-pointer">
-                        <option value="50ms">50ms</option>
-                        <option value="100ms">100ms</option>
-                        <option value="500ms">500ms</option>
-                    </select>
-                </div>
-
-                <div className="text-right text-sm">
-                    <div className="text-sm font-medium text-[var(--color-accent)]">
-                        Demo observation {currentIndex + 1} / {totalFrames}
+                <main className="min-w-0 p-4 lg:overflow-y-auto">
+                    <div className="flex flex-col justify-between gap-1 sm:flex-row">
+                        <div>
+                            <h1 className="text-base">Sky position &amp; spectrum</h1>
+                            <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {CENTER.fov.toFixed(2)}° field</p>
+                        </div>
+                        <p className="text-xs text-muted">Sample dates, catalog and measurements</p>
                     </div>
-                    <div className="text-[var(--color-muted)] text-xs">Observation date unavailable in demo</div>
-                </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+                        <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
+                            <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
+                                <p>Demo · Candidate · No counterpart in sample Gaia DR3 catalog</p>
+                                <p className="mt-2 text-muted">IR signal · SNR 5.9σ</p>
+                            </div>
+
+                            <div role="tablist" className="flex gap-1 text-xs">
+                                {TABS.map((t) => (
+                                    <button
+                                        key={t}
+                                        role="tab"
+                                        aria-selected={tab === t}
+                                        onClick={() => setTab(t)}
+                                        className={`h-8 flex-1 rounded-sm border px-2 transition-hover ${
+                                            tab === t ? "border-accent bg-accent/15" : "border-transparent text-muted hover:bg-raised"
+                                        }`}
+                                    >
+                                        {t}
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div
+                                onClick={handleImageClick}
+                                className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface cursor-crosshair"
+                            >
+                                {loading ? (
+                                    <div className="flex h-full items-center justify-center text-xs text-muted">
+                                        Loading sky patch...
+                                    </div>
+                                ) : (
+                                    <img
+                                        src={frames[currentIndex]}
+                                        alt={`Observation frame ${currentIndex + 1}`}
+                                        className="h-full w-full object-cover"
+                                    />
+                                )}
+
+                                <div className="absolute top-[8px] left-[8px] px-2 py-1 pointer-events-none">
+                                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M0.5 32V0.5H32" stroke="#D5B6FF" strokeWidth="1.5"/>
+                                    </svg>
+                                </div>
+
+                                <div className="absolute bottom-[20px] right-[20px] px-2 py-1 pointer-events-none">
+                                    <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                        <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
+                                    </svg>
+                                </div>
+
+                                {/* Маркер выбранной точки */}
+                                {selected && (
+                                    <div
+                                        className="absolute pointer-events-none -translate-x-1/2 -translate-y-1/2 h-4 w-4 rounded-full border border-accent"
+                                        style={{ left: `${selected.fx * 100}%`, top: `${selected.fy * 100}%` }}
+                                    />
+                                )}
+                            </div>
+
+                            <p className="text-xs text-muted">Click the image to load the spectrum for that position.</p>
+
+                            <div className="flex items-center justify-between text-xs text-muted">
+                                <span>− &nbsp; 100% &nbsp; +</span>
+                                <span>Wheel to zoom · Drag to pan</span>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-2">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={handlePlayToggle}
+                                        className="w-10 h-10 p-3 bg-accent hover:bg-accent-hover text-[var(--color-on-accent)] rounded-[var(--radius-panel)] flex items-center justify-center transition cursor-pointer"
+                                        aria-label="Play or Stop">
+                                        {isPlaying ? (
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                                                <rect x="6" y="4" width="4" height="16"/>
+                                                <rect x="14" y="4" width="4" height="16"/>
+                                            </svg>
+                                        ) : (
+                                            <svg width="24" height="24" viewBox="0 0 32 35" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                                <path d="M0.729492 4.42729C0.7293 3.7768 0.900767 3.13777 1.22658 2.57473C1.55239 2.01169 2.02102 1.54458 2.58514 1.22055C3.14925 0.896526 3.78889 0.727061 4.43946 0.729269C5.09004 0.731478 5.72851 0.905281 6.29041 1.23313L28.4694 14.1688C29.0291 14.4935 29.4938 14.9594 29.817 15.52C30.1402 16.0806 30.3106 16.7161 30.3111 17.3632C30.3117 18.0102 30.1424 18.6461 29.8202 19.2072C29.498 19.7683 29.0341 20.2351 28.4749 20.5608L6.29041 33.5001C5.72851 33.828 5.09004 34.0018 4.43946 34.004C3.78889 34.0062 3.14925 33.8367 2.58514 33.5127C2.02102 33.1887 1.55239 32.7215 1.22658 32.1585C0.900767 31.5955 0.7293 30.9564 0.729492 30.3059V4.42729Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                            </svg>
+                                        )}
+                                    </button>
+
+                                    <button
+                                        onClick={handlePrevFrame}
+                                        className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
+                                        aria-label="Previous frame">
+                                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M14.9757 3.57083C15.2286 3.41908 15.5172 3.33717 15.8121 3.33345C16.1071 3.32972 16.3977 3.40433 16.6543 3.54965C16.911 3.69497 17.1245 3.90579 17.273 4.16059C17.4216 4.4154 17.4998 4.70506 17.4998 5V15C17.4998 15.2949 17.4216 15.5846 17.273 15.8394C17.1245 16.0942 16.911 16.305 16.6543 16.4503C16.3977 16.5957 16.1071 16.6703 15.8121 16.6665C15.5172 16.6628 15.2286 16.5809 14.9757 16.4292L6.64484 11.4308C6.39753 11.2831 6.19275 11.0737 6.05047 10.8232C5.90818 10.5727 5.83326 10.2896 5.83301 10.0015C5.83276 9.71345 5.90718 9.43022 6.04903 9.17947C6.19087 8.92872 6.39529 8.71902 6.64234 8.57083L14.9757 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                            <path d="M2.5 16.6666V3.33331" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                        </svg>
+                                    </button>
+
+                                    <button
+                                        onClick={handleNextFrame}
+                                        className="w-10 h-10 flex items-center justify-center transition cursor-pointer text-muted hover:text-text rounded-sm hover:bg-raised"
+                                        aria-label="Next frame">
+                                        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M17.5 3.33331V16.6666" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                            <path d="M5.02417 3.57083C4.77126 3.41908 4.48261 3.33717 4.18769 3.33345C3.89278 3.32972 3.60216 3.40433 3.3455 3.54965C3.08884 3.69497 2.87534 3.90579 2.7268 4.16059C2.57826 4.4154 2.5 4.70506 2.5 5V15C2.5 15.2949 2.57826 15.5846 2.7268 15.8394C2.87534 16.0942 3.08884 16.305 3.3455 16.4503C3.60216 16.5957 3.89278 16.6703 4.18769 16.6665C4.48261 16.6628 4.77126 16.5809 5.02417 16.4292L13.355 11.4308C13.6023 11.2831 13.8071 11.0737 13.9494 10.8232C14.0917 10.5727 14.1666 10.2896 14.1668 10.0015C14.1671 9.71345 14.0927 9.43022 13.9508 9.17947C13.809 8.92872 13.6045 8.71902 13.3575 8.57083L5.02417 3.57083Z" strokeWidth="1.45833" strokeLinecap="round" strokeLinejoin="round" stroke="currentColor"/>
+                                        </svg>
+                                    </button>
+
+                                    <select
+                                        defaultValue="100ms"
+                                        onChange={handleSpeedChange}
+                                        className="bg-bg text-text border border-border h-10 px-3 text-xs rounded-sm focus:outline-none cursor-pointer"
+                                    >
+                                        <option value="50ms">50ms</option>
+                                        <option value="100ms">100ms</option>
+                                        <option value="500ms">500ms</option>
+                                    </select>
+                                </div>
+
+                                <div className="text-right text-xs">
+                                    <div className="font-medium text-accent">
+                                        Frame {currentIndex + 1} / {totalFrames}
+                                    </div>
+                                    <div className="text-muted text-[10px]">Observation player</div>
+                                </div>
+                            </div>
+
+                            <div className="relative flex items-center mt-1">
+                                <input
+                                    type="range"
+                                    min="0"
+                                    max={totalFrames > 0 ? totalFrames - 1 : 0}
+                                    value={currentIndex}
+                                    onChange={(e) => {
+                                        setIsPlaying(false);
+                                        setCurrentIndex(Number(e.target.value));
+                                    }}
+                                    className="w-full h-1.5 rounded-lg appearance-none cursor-pointer focus:outline-none bg-[var(--color-muted)] accent-[var(--color-accent)]"
+                                />
+                            </div>
+
+                            <div className="flex gap-2 mt-2">
+                                {frameData?.epochs ? (
+                                    frameData.epochs.map((ep, i) => (
+                                        <button
+                                            key={ep.label}
+                                            onClick={() => {
+                                                setIsPlaying(false);
+                                                setCurrentIndex(i);
+                                            }}
+                                            className={`h-10 rounded-sm border px-4 text-xs transition-hover cursor-pointer ${
+                                                currentIndex === i ? "border-accent bg-accent/15 text-accent" : "border-border hover:bg-raised text-muted"
+                                            }`}
+                                        >
+                                            {ep.label}
+                                        </button>
+                                    ))
+                                ) : (
+                                    <span className="text-xs text-muted">Loading dates...</span>
+                                )}
+                            </div>
+                            <p className="text-xs text-muted">
+                                {frameData?.epochs?.[currentIndex]?.date_obs
+                                    ? `Observation date · ${frameData.epochs[currentIndex].date_obs}`
+                                    : "Demo date · 2025-05-06 02:34 UTC · 6 detector frames"}
+                            </p>
+                        </section>
+
+                        <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col">
+                            <div className="flex items-start justify-between gap-2">
+                                <h2 className="text-2xl">Object spectrum</h2>
+                                <Badge>Illustrative data</Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
+                            <p className="mt-1 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
+                            {pointError && (
+                                <p className="mt-1 text-xs text-rose-400">
+                                    Could not load spectrum for this position. Showing the field center instead.
+                                </p>
+                            )}
+
+                            <div className="mt-3 flex flex-wrap gap-4 text-xs">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={hideNoisy}
+                                        onChange={(e) => setHideNoisy(e.target.checked)}
+                                        className="accent-accent"
+                                    />
+                                    Hide noisy / defective points ({noisyCount})
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={connectPoints}
+                                        onChange={(e) => setConnectPoints(e.target.checked)}
+                                        className="accent-accent"
+                                    />
+                                    Connect points
+                                </label>
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={showBands}
+                                        onChange={(e) => setShowBands(e.target.checked)}
+                                        className="accent-accent"
+                                    />
+                                    Show molecular bands ({bands.length})
+                                </label>
+                            </div>
+
+                            <p className="mt-2 text-xs text-muted">
+                                {rawSpectrum.length} measured points · {noisyCount} noisy / defective · {bands.length} molecular bands · {bandStats.filter((b) => b.count > 0).length} of 6 detector bands with data
+                            </p>
+
+                            <div className={`relative mt-3 w-full rounded-sm bg-bg border border-border p-2 select-none overflow-hidden ${pointLoading ? "opacity-50" : ""}`}>
+                                <svg
+                                    viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+                                    className="w-full h-auto overflow-visible"
+                                >
+
+                                    {/* Полосы поглощения молекул */}
+                                    {showBands && bands.map((b, i) => {
+                                        const x1 = scaleX(b.range_um[0]);
+                                        const x2 = scaleX(b.range_um[1]);
+                                        return (
+                                            <g key={`${b.molecule}-${i}`}>
+                                                <title>{b.label}</title>
+                                                <rect x={x1} y={padding.top} width={x2 - x1} height={plotHeight} fill="currentColor" opacity={0.12} />
+                                                {/* маленькая скобка над полосой */}
+                                                <path
+                                                    d={`M ${x1} ${padding.top - 6} V ${padding.top - 12} H ${x2} V ${padding.top - 6}`}
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeOpacity={0.4}
+                                                    strokeLinejoin="round"
+                                                />
+                                                <text x={(x1 + x2) / 2} y={padding.top - 18} textAnchor="middle" className="text-[9px] fill-muted">
+                                                    {sub(b.molecule)}
+                                                </text>
+                                            </g>
+                                        );
+                                    })}
+
+                                    {/* Горизонтальные линии сетки */}
+                                    {[0.25, 0.5, 0.75, 1].map((ratio, i) => {
+                                        const yVal = minY + (maxY - minY) * ratio;
+                                        const yPos = scaleY(yVal);
+                                        return (
+                                            <g key={`grid-${i}`}>
+                                                <line
+                                                    x1={padding.left}
+                                                    y1={yPos}
+                                                    x2={chartWidth - padding.right}
+                                                    y2={yPos}
+                                                    stroke="currentColor"
+                                                    strokeOpacity={0.08}
+                                                />
+                                                <text
+                                                    x={padding.left - 8}
+                                                    y={yPos + 3}
+                                                    textAnchor="end"
+                                                    className="text-[9px] fill-muted font-mono"
+                                                >
+                                                    {yVal.toFixed(0)}
+                                                </text>
+                                            </g>
+                                        );
+                                    })}
+
+                                    {minY <= 0 && maxY >= 0 && (
+                                        <g>
+                                            <line
+                                                x1={padding.left}
+                                                y1={scaleY(0)}
+                                                x2={chartWidth - padding.right}
+                                                y2={scaleY(0)}
+                                                stroke="currentColor"
+                                                strokeDasharray="4,4"
+                                                strokeOpacity={0.4}
+                                            />
+                                            <text
+                                                x={padding.left - 8}
+                                                y={scaleY(0) + 3}
+                                                textAnchor="end"
+                                                className="text-[9px] fill-accent font-mono font-medium"
+                                            >
+                                                0 µJy
+                                            </text>
+                                        </g>
+                                    )}
+
+                                    {[0.75, 1.5, 2.5, 3.5, 4.5, 5.0].filter(w => w >= minWavelength && w <= maxWavelength).map((w) => (
+                                        <g key={`tick-${w}`}>
+                                            <line
+                                                x1={scaleX(w)}
+                                                y1={padding.top + plotHeight}
+                                                x2={scaleX(w)}
+                                                y2={padding.top + plotHeight + 4}
+                                                stroke="currentColor"
+                                                strokeOpacity={0.3}
+                                            />
+                                            <text
+                                                x={scaleX(w)}
+                                                y={padding.top + plotHeight + 14}
+                                                textAnchor="middle"
+                                                className="text-[9px] fill-muted font-mono"
+                                            >
+                                                {w.toFixed(2)}
+                                            </text>
+                                        </g>
+                                    ))}
+
+                                    <text
+                                        x={padding.left + plotWidth / 2}
+                                        y={chartHeight - 4}
+                                        textAnchor="middle"
+                                        className="text-[10px] fill-muted"
+                                    >
+                                        Wavelength (µm)
+                                    </text>
+
+                                    {connectPoints && spectrumPoints.length > 1 && (
+                                        <path
+                                            d={spectrumPoints.reduce((acc, pt, idx) => {
+                                                const x = scaleX(pt.wavelength);
+                                                const y = scaleY(pt.flux);
+                                                return idx === 0 ? `M ${x} ${y}` : `${acc} L ${x} ${y}`;
+                                            }, "")}
+                                            fill="none"
+                                            stroke="var(--color-accent)"
+                                            strokeWidth="1.5"
+                                            strokeOpacity={0.7}
+                                        />
+                                    )}
+
+                                    {spectrumPoints.map((pt, idx) => {
+                                        const cx = scaleX(pt.wavelength);
+                                        const cy = scaleY(pt.flux);
+                                        const yTop = scaleY(pt.flux + (pt.flux_error || 0));
+                                        const yBottom = scaleY(pt.flux - (pt.flux_error || 0));
+                                        const detector = getDetectorForWavelength(pt.wavelength);
+                                        const isFlagged = pt.is_noisy;
+                                        const color = isFlagged ? NOISY_COLOR : detector.color;
+
+                                        return (
+                                            <g
+                                                key={`pt-${idx}`}
+                                                className="cursor-pointer"
+                                                onMouseEnter={() => {
+                                                    setHoveredPoint({ ...pt, detector });
+                                                }}
+                                                onMouseLeave={() => setHoveredPoint(null)}
+                                            >
+                                                <line x1={cx} y1={yTop} x2={cx} y2={yBottom} stroke={color} strokeWidth="1.2" />
+                                                <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} stroke={color} strokeWidth="1.2" />
+                                                <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} stroke={color} strokeWidth="1.2" />
+
+                                                <circle
+                                                    cx={cx}
+                                                    cy={cy}
+                                                    r={4}
+                                                    fill={color}
+                                                    stroke="#1e1e24"
+                                                    strokeWidth="1"
+                                                />
+
+                                                {/* зачёркивание шумной точки: линия выходит за границы кружка */}
+                                                {isFlagged && (
+                                                    <line
+                                                        x1={cx - 7}
+                                                        y1={cy + 7}
+                                                        x2={cx + 7}
+                                                        y2={cy - 7}
+                                                        stroke={NOISY_COLOR}
+                                                        strokeWidth="1.5"
+                                                        strokeLinecap="round"
+                                                        className="pointer-events-none"
+                                                    />
+                                                )}
+                                            </g>
+                                        );
+                                    })}
+                                </svg>
+
+                                {hoveredPoint && (
+                                    <div
+                                        className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg"
+                                        style={{ left: '50%', bottom: '40px' }}
+                                    >
+                                        <div className="font-medium text-accent">
+                                            Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band || "Band"}, {hoveredPoint.detector?.code || "D1"})
+                                        </div>
+                                        <div className="mt-1 text-text">
+                                            Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
+                                        </div>
+                                        <div className="text-muted">
+                                            Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? (hoveredPoint.flux_error ? Math.abs(hoveredPoint.flux / hoveredPoint.flux_error) : 0)).toFixed(2)}
+                                        </div>
+                                        {hoveredPoint.is_noisy && (
+                                            <div className="mt-1 text-rose-400 font-medium">
+                                                ⚠ Warning: {hoveredPoint.is_flagged
+                                                ? "point is flagged as noisy / defective (is_flagged: true)."
+                                                : `low signal-to-noise (SNR < ${NOISY_SNR}), large uncertainty.`}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            <ul className="mt-4 grid grid-cols-2 gap-3 text-xs text-muted sm:grid-cols-3">
+                                {bandStats.map((b) => (
+                                    <li key={b.code} className={`flex items-start gap-2 ${b.count ? "" : "opacity-50"}`}>
+                                        <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: b.color }} />
+                                        <div>
+                                            <div className="text-text">{b.name}</div>
+                                            <div>{b.min.toFixed(2)}–{b.max.toFixed(2)} µm · {b.code}</div>
+                                            <div>
+                                                {b.count
+                                                    ? `${b.count} pts · ${b.wMin.toFixed(3)}–${b.wMax.toFixed(3)} µm${b.noisy ? ` · ${b.noisy} noisy` : ""}`
+                                                    : "no data in this pixel"}
+                                            </div>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                            <p className="mt-4 text-xs text-muted">Sample spectrum for design review. Click a different sky position to compare illustrative measurements.</p>
+                        </section>
+                    </div>
+                </main>
             </div>
-
-            <div className="w-[620px] mt-6">
-                <div className="relative flex items-center">
-                    <input
-                        type="range"
-                        min="0"
-                        max={totalFrames - 1}
-                        value={currentIndex}
-                        onChange={(e) => {
-                            setIsPlaying(false);
-                            setCurrentIndex(Number(e.target.value));
-                        }}
-                        className="w-full h-1.5 rounded-lg appearance-none cursor-pointer focus:outline-none"
-                        style={{
-                            background: '#78668D',
-                            accentColor: '#D5B6FF'
-                        }}
-                    />
-                </div>
-            </div>
-
-            <div className="w-[620px] flex justify-between items-center mt-3 text-sm text-[var(--color-muted)]">
-                <span>First observation</span>
-                <span>Loop playback</span>
-                <span>Latest observation</span>
-            </div>
-
-            <hr className="w-[620px] border-[var(--color-border)] my-6"/>
-
-            <div className="w-[620px] flex justify-between items-center text-xs text-[var(--color-muted)]">
-                <span className="text-[var(--color-muted)]">Look for a point that shifts between frames.</span>
-                <div className="flex items-center gap-2">
-                    <span>Skypatch</span>
-                    <svg width="2" height="2" viewBox="0 0 2 2" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
-                        <circle cx="1" cy="1" r="1" fill="#AD96C5"/>
-                    </svg>
-                    <span>Infrared sky explorer</span>
-                </div>
-            </div>
-
         </div>
     );
 }
 
-export default PictureWindow;
+export default Home;

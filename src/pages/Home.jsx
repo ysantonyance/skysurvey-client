@@ -1,15 +1,24 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Check } from "lucide-react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
-import {Select} from "../components/Select.jsx";
+import { Select } from "../components/Select.jsx";
 
-const API = "http://127.0.0.1:8000";
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
 
 const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
 
 const NOISY_SNR = 1;
+
+// Цвет шумных / дефектных точек
+const NOISY_COLOR = "#A49DAF";
+
+// Подписи молекул идут в два ряда, чтобы не налезать друг на друга
+const LABEL_ROW = { CH4: 1 };
+
+const PALETTE = ["#E8D9FF", "#D2B0F8", "#B99BEB", "#D29BD2", "#B7A7EE", "#DAB5E7"];
 
 const PRESETS = [
     { label: "WISE 0855", ra: "133.7951", dec: "-7.2451" },
@@ -20,7 +29,7 @@ const PRESETS = [
 const DEFAULT_VIEW = {
     gaia: false, motion: false, defect: false, crosshair: true,
     opacity: 50,
-    stretch: "asinh", cut: null, softness: 0.1, // cut: null = авто
+    stretch: "asinh", cut: null, softness: 0.1,
     invert: false,
 };
 
@@ -34,6 +43,22 @@ const CLASS_LABEL = {
 function Badge({ children }) {
     return (
         <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
+    );
+}
+
+function Checkbox({ label, ...rest }) {
+    return (
+        <label className="flex cursor-pointer items-center gap-2 text-xs text-text">
+            <span className="relative grid h-4 w-4 shrink-0 place-items-center">
+                <input
+                    type="checkbox"
+                    {...rest}
+                    className="peer absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-sm border border-border bg-bg transition-hover checked:border-[#C79AFF] checked:bg-[#C79AFF] focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                />
+                <Check size={12} aria-hidden className="pointer-events-none relative text-bg opacity-0 peer-checked:opacity-100" />
+            </span>
+            {label}
+        </label>
     );
 }
 
@@ -65,7 +90,7 @@ function Home() {
     const [intervalMs, setIntervalMs] = useState(100);
 
     const [hideNoisy, setHideNoisy] = useState(false);
-    const [connectPoints, setConnectPoints] = useState(true);
+    const [connectPoints, setConnectPoints] = useState(false);
     const [hoveredPoint, setHoveredPoint] = useState(null);
     const [showBands, setShowBands] = useState(true);
 
@@ -78,7 +103,7 @@ function Home() {
     const [stretched, setStretched] = useState(null);
     const onViewChange = (patch) => setView((v) => ({ ...v, ...patch }));
 
-    const [selected, setSelected] = useState(null); // { ra, dec, fx, fy }
+    const [selected, setSelected] = useState(null);
     const [pointData, setPointData] = useState(null);
     const [pointLoading, setPointLoading] = useState(false);
     const [pointError, setPointError] = useState(false);
@@ -121,15 +146,15 @@ function Home() {
 
                 if (data.status === "ready" || data.status === "partial") {
                     setFrameData(data);
-                    setLoading(false); // знімок вже можна показувати
+                    setLoading(false);
                 }
 
                 if (data.status === "processing" || data.status === "partial") {
                     timer = setTimeout(run, data.poll_after_ms ?? 1500);
-                    return; // продовжуємо опитувати
+                    return;
                 }
 
-                setProgress(null); // ready: бар можна сховати
+                setProgress(null);
             } catch (err) {
                 if (err.name !== "AbortError") {
                     setError(err.message);
@@ -205,7 +230,7 @@ function Home() {
     const disp = frameData?.display;
     const W = disp?.width ?? 512;
     const H = disp?.height ?? 512;
-    const crosshairR = disp ? 10 / disp.pixel_scale_arcsec : 14; // радіус 10″ у пікселях PNG
+    const crosshairR = disp ? 10 / disp.pixel_scale_arcsec : 14;
     const gaiaSources = frameData?.crossmatch?.overlay ?? [];
     const cm = frameData?.crossmatch;
     const anomalies = frameData?.difference?.anomalies ?? [];
@@ -237,13 +262,6 @@ function Home() {
     const handleNextFrame = () => {
         setIsPlaying(false);
         setCurrentIndex((prev) => (prev + 1) % totalFrames);
-    };
-
-    const handleSpeedChange = (e) => {
-        const val = e.target.value;
-        if (val === '500ms') setIntervalMs(500);
-        else if (val === '100ms') setIntervalMs(100);
-        else setIntervalMs(50);
     };
 
     const handleImageClick = (e) => {
@@ -313,8 +331,8 @@ function Home() {
     const minWavelength = 0.75;
     const maxWavelength = 5.0;
     const chartWidth = 700;
-    const chartHeight = 280;
-    const padding = { top: 35, right: 30, bottom: 40, left: 65 };
+    const chartHeight = 360;
+    const padding = { top: 64, right: 16, bottom: 56, left: 64 };
     const plotWidth = chartWidth - padding.left - padding.right;
     const plotHeight = chartHeight - padding.top - padding.bottom;
 
@@ -324,6 +342,18 @@ function Home() {
 
     const scaleX = (w) => padding.left + ((w - minWavelength) / (maxWavelength - minWavelength)) * plotWidth;
     const scaleY = (f) => padding.top + plotHeight - ((f - minY) / (maxY - minY)) * plotHeight;
+
+    const niceStep = (range, target = 6) => {
+        const raw = range / target;
+        const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+        const n = raw / pow;
+        return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * pow;
+    };
+    const yStep = niceStep(maxY - minY);
+    const yTicks = [];
+    for (let v = Math.ceil(minY / yStep) * yStep; v <= maxY; v += yStep) yTicks.push(Number(v.toFixed(6)));
+    const fmtY = (t) => (yStep >= 1 ? String(Math.round(t)) : t.toFixed(2));
+    const xTicks = [0.75, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5];
 
     const findBands = (node) => {
         if (!node || typeof node !== "object") return null;
@@ -336,21 +366,31 @@ function Home() {
     };
     const bands = findBands(frameData) ?? [];
 
-    const detectorBands = [
-        { code: "D1", name: "Band 1", min: 0.75, max: 1.1, color: "var(--color-accent)" },
-        { code: "D2", name: "Band 2", min: 1.1, max: 1.6, color: "var(--color-accent)" },
-        { code: "D3", name: "Band 3", min: 1.6, max: 2.4, color: "var(--color-accent)" },
-        { code: "D4", name: "Band 4", min: 2.4, max: 3.8, color: "var(--color-accent)" },
-        { code: "D5", name: "Band 5", min: 3.8, max: 4.4, color: "var(--color-accent)" },
-        { code: "D6", name: "Band 6", min: 4.4, max: 5.0, color: "var(--color-accent)" },
-    ];
-
     const sub = (s) => s.replace(/\d/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[d]);
 
-    const getDetectorForWavelength = (w) => {
-        const found = detectorBands.find(b => w >= b.min && w <= b.max);
-        return found || detectorBands[0];
-    };
+    const bandGroups = (() => {
+        const map = new Map();
+        rawSpectrum.forEach((p) => {
+            if (!map.has(p.band)) map.set(p.band, []);
+            map.get(p.band).push(p);
+        });
+        return [...map.entries()]
+            .map(([name, pts], i) => {
+                const ws = pts.map((p) => p.wavelength);
+                const det = pts[0].detector;
+                return {
+                    name,
+                    code: det != null ? `D${det}` : "",
+                    color: PALETTE[(det != null ? Number(det) - 1 : i) % PALETTE.length],
+                    count: pts.length,
+                    noisy: pts.filter((p) => p.is_noisy).length,
+                    wMin: Math.min(...ws),
+                    wMax: Math.max(...ws),
+                };
+            })
+            .sort((a, b) => a.wMin - b.wMin);
+    })();
+    const bandColor = Object.fromEntries(bandGroups.map((g) => [g.name, g.color]));
 
     const shownRa = Number(selected?.ra ?? frameData?.ra ?? CENTER.ra).toFixed(6);
     const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
@@ -385,7 +425,7 @@ function Home() {
                         </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+                    <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
                         <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
                             <div className="rounded-sm border border-accent/40 bg-accent/15 p-3 text-xs">
                                 {cm ? (
@@ -610,128 +650,106 @@ function Home() {
                             </p>
                         </section>
 
-                        <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col">
+                        {/* Блок спектра со свойством self-start, чтобы он не растягивался на всю высоту родителя */}
+                        <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
                             <div className="flex items-start justify-between gap-2">
                                 <h2 className="text-2xl">Object spectrum</h2>
                                 <Badge>Illustrative data</Badge>
                             </div>
-                            <p className="mt-1 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
-                            <p className="mt-1 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
+                            <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
+                            <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
                             {pointError && (
                                 <p className="mt-1 text-xs text-error">
                                     Could not load spectrum for this position. Showing the field center instead.
                                 </p>
                             )}
 
-                            <div className="mt-3 flex flex-wrap gap-4 text-xs">
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={hideNoisy}
-                                        onChange={(e) => setHideNoisy(e.target.checked)}
-                                        className="accent-accent"
-                                    />
-                                    Hide noisy / defective points ({noisyCount})
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={connectPoints}
-                                        onChange={(e) => setConnectPoints(e.target.checked)}
-                                        className="accent-accent"
-                                    />
-                                    Connect points
-                                </label>
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input
-                                        type="checkbox"
-                                        checked={showBands}
-                                        onChange={(e) => setShowBands(e.target.checked)}
-                                        className="accent-accent"
-                                    />
-                                    Show molecular bands ({bands.length})
-                                </label>
+                            <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2">
+                                <Checkbox
+                                    label={<>Hide noisy / defective points <span className="text-muted">({noisyCount})</span></>}
+                                    checked={hideNoisy}
+                                    onChange={(e) => setHideNoisy(e.target.checked)}
+                                />
+                                <Checkbox
+                                    label={<>Show molecular bands <span className="text-muted">({bands.length})</span></>}
+                                    checked={showBands}
+                                    onChange={(e) => setShowBands(e.target.checked)}
+                                />
+                                <Checkbox
+                                    label="Connect points"
+                                    checked={connectPoints}
+                                    onChange={(e) => setConnectPoints(e.target.checked)}
+                                />
                             </div>
 
-                            <p className="mt-2 text-xs text-muted">
-                                {rawSpectrum.length} measured points · {noisyCount} noisy / defective · {bands.length} molecular bands · 6 detector bands
-                            </p>
-
-                            <div className={`relative mt-3 w-full rounded-sm bg-bg border border-border p-2 select-none overflow-hidden ${pointLoading ? "opacity-50" : ""}`}>
+                            <div className={`relative mt-4 w-full select-none ${pointLoading ? "opacity-50" : ""}`}>
                                 <svg
                                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
                                     className="w-full h-auto overflow-visible"
                                 >
+                                    <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} className="fill-bg" />
 
                                     {showBands && bands.map((b, i) => {
                                         const x1 = scaleX(b.range_um[0]);
                                         const x2 = scaleX(b.range_um[1]);
+                                        const row = LABEL_ROW[b.molecule] ?? 0;
                                         return (
                                             <g key={`${b.molecule}-${i}`}>
                                                 <title>{b.label}</title>
                                                 <rect x={x1} y={padding.top} width={x2 - x1} height={plotHeight} fill="currentColor" opacity={0.12} />
                                                 <path
-                                                    d={`M ${x1} ${padding.top - 6} V ${padding.top - 12} H ${x2} V ${padding.top - 6}`}
+                                                    d={`M ${x1} ${padding.top - 4} V ${padding.top - 10} H ${x2} V ${padding.top - 4}`}
                                                     fill="none"
                                                     stroke="currentColor"
                                                     strokeOpacity={0.4}
                                                     strokeLinejoin="round"
                                                 />
-                                                <text x={(x1 + x2) / 2} y={padding.top - 18} textAnchor="middle" className="text-[9px] fill-muted">
+                                                <text
+                                                    x={(x1 + x2) / 2}
+                                                    y={padding.top - (row === 1 ? 17 : 30)}
+                                                    textAnchor="middle"
+                                                    className="text-[9px] fill-muted"
+                                                >
                                                     {sub(b.molecule)}
                                                 </text>
                                             </g>
                                         );
                                     })}
 
-                                    {[0.25, 0.5, 0.75, 1].map((ratio, i) => {
-                                        const yVal = minY + (maxY - minY) * ratio;
-                                        const yPos = scaleY(yVal);
-                                        return (
-                                            <g key={`grid-${i}`}>
-                                                <line
-                                                    x1={padding.left}
-                                                    y1={yPos}
-                                                    x2={chartWidth - padding.right}
-                                                    y2={yPos}
-                                                    stroke="currentColor"
-                                                    strokeOpacity={0.08}
-                                                />
-                                                <text
-                                                    x={padding.left - 8}
-                                                    y={yPos + 3}
-                                                    textAnchor="end"
-                                                    className="text-[9px] fill-muted font-mono"
-                                                >
-                                                    {yVal.toFixed(0)}
-                                                </text>
-                                            </g>
-                                        );
-                                    })}
-
-                                    {minY <= 0 && maxY >= 0 && (
-                                        <g>
+                                    {yTicks.map((t) => (
+                                        <g key={`grid-${t}`}>
                                             <line
                                                 x1={padding.left}
-                                                y1={scaleY(0)}
+                                                y1={scaleY(t)}
                                                 x2={chartWidth - padding.right}
-                                                y2={scaleY(0)}
+                                                y2={scaleY(t)}
                                                 stroke="currentColor"
-                                                strokeDasharray="4,4"
-                                                strokeOpacity={0.4}
+                                                strokeOpacity={0.08}
                                             />
                                             <text
-                                                x={padding.left - 8}
-                                                y={scaleY(0) + 3}
+                                                x={padding.left + 8}
+                                                y={scaleY(t) + 3}
                                                 textAnchor="end"
-                                                className="text-[9px] fill-accent font-mono font-medium"
+                                                className={`text-[9px] font-mono ${t === 0 ? "fill-text" : "fill-muted"}`}
                                             >
-                                                0 µJy
+                                                {t === 0 ? "0 µJy" : fmtY(t)}
                                             </text>
                                         </g>
+                                    ))}
+
+                                    {minY <= 0 && maxY >= 0 && (
+                                        <line
+                                            x1={padding.left}
+                                            y1={scaleY(0)}
+                                            x2={chartWidth - padding.right}
+                                            y2={scaleY(0)}
+                                            stroke="currentColor"
+                                            strokeDasharray="4,4"
+                                            strokeOpacity={0.7}
+                                        />
                                     )}
 
-                                    {[0.75, 1.5, 2.5, 3.5, 4.5, 5.0].filter(w => w >= minWavelength && w <= maxWavelength).map((w) => (
+                                    {xTicks.map((w) => (
                                         <g key={`tick-${w}`}>
                                             <line
                                                 x1={scaleX(w)}
@@ -743,22 +761,29 @@ function Home() {
                                             />
                                             <text
                                                 x={scaleX(w)}
-                                                y={padding.top + plotHeight + 14}
+                                                y={padding.top + plotHeight + 16}
                                                 textAnchor="middle"
                                                 className="text-[9px] fill-muted font-mono"
                                             >
-                                                {w.toFixed(2)}
+                                                {w === 0.75 ? "0.75" : w.toFixed(1)}
                                             </text>
                                         </g>
                                     ))}
 
                                     <text
                                         x={padding.left + plotWidth / 2}
-                                        y={chartHeight - 4}
+                                        y={chartHeight - 6}
                                         textAnchor="middle"
                                         className="text-[10px] fill-muted"
                                     >
-                                        Wavelength (µm)
+                                        Wavelength, µm
+                                    </text>
+                                    <text
+                                        transform={`translate(12 ${padding.top + plotHeight / 2}) rotate(-90)`}
+                                        textAnchor="middle"
+                                        className="text-[10px] fill-muted"
+                                    >
+                                        Flux, µJy
                                     </text>
 
                                     {connectPoints && spectrumPoints.length > 1 && (
@@ -780,41 +805,50 @@ function Home() {
                                         const cy = scaleY(pt.flux);
                                         const yTop = scaleY(pt.flux + (pt.flux_error || 0));
                                         const yBottom = scaleY(pt.flux - (pt.flux_error || 0));
-                                        const detector = getDetectorForWavelength(pt.wavelength);
+                                        const detector = { code: pt.detector != null ? `D${pt.detector}` : "" };
+                                        const bandCol = bandColor[pt.band] ?? PALETTE[0];
                                         const isFlagged = pt.is_noisy;
+                                        const color = isFlagged ? NOISY_COLOR : bandCol;
 
                                         return (
                                             <g
                                                 key={`pt-${idx}`}
-                                                className="cursor-pointer transition-all hover:opacity-100"
-                                                opacity={isFlagged ? 0.35 : 1}
+                                                className="cursor-pointer"
                                                 onMouseEnter={() => {
                                                     setHoveredPoint({ ...pt, detector });
                                                 }}
                                                 onMouseLeave={() => setHoveredPoint(null)}
                                             >
-                                                <line
-                                                    x1={cx}
-                                                    y1={yTop}
-                                                    x2={cx}
-                                                    y2={yBottom}
-                                                    stroke={detector.color}
-                                                    strokeWidth="1.2"
-                                                />
-                                                <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} stroke={detector.color} strokeWidth="1.2" />
-                                                <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} stroke={detector.color} strokeWidth="1.2" />
+                                                <g stroke={color} strokeOpacity={0.6} strokeWidth="1">
+                                                    <line x1={cx} y1={yTop} x2={cx} y2={yBottom} />
+                                                    <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} />
+                                                    <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} />
+                                                </g>
 
-                                                <circle
-                                                    cx={cx}
-                                                    cy={cy}
-                                                    r={isFlagged ? 3 : 4}
-                                                    fill={isFlagged ? "#6b7280" : detector.color}
-                                                    stroke="#1e1e24"
-                                                    strokeWidth="1"
-                                                />
-
-                                                {isFlagged && (
-                                                    <text x={cx} y={cy + 3} textAnchor="middle" className="text-[8px] fill-bg font-bold pointer-events-none">×</text>
+                                                {isFlagged ? (
+                                                    <>
+                                                        <circle
+                                                            cx={cx}
+                                                            cy={cy}
+                                                            r={4}
+                                                            fill="none"
+                                                            stroke={NOISY_COLOR}
+                                                            strokeWidth="1"
+                                                            pointerEvents="all"
+                                                        />
+                                                        <line
+                                                            x1={cx - 6}
+                                                            y1={cy + 6}
+                                                            x2={cx + 6}
+                                                            y2={cy - 6}
+                                                            stroke={NOISY_COLOR}
+                                                            strokeWidth="1"
+                                                            strokeLinecap="round"
+                                                            className="pointer-events-none"
+                                                        />
+                                                    </>
+                                                ) : (
+                                                    <circle cx={cx} cy={cy} r={4} fill={bandCol} />
                                                 )}
                                             </g>
                                         );
@@ -824,10 +858,10 @@ function Home() {
                                 {hoveredPoint && (
                                     <div
                                         className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg"
-                                        style={{ left: '50%', bottom: '40px' }}
+                                        style={{ left: '50%', bottom: '56px' }}
                                     >
                                         <div className="font-medium text-accent">
-                                            Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band || "Band"}, {hoveredPoint.detector?.code || "D1"})
+                                            Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band}{hoveredPoint.detector?.code ? `, ${hoveredPoint.detector.code}` : ""})
                                         </div>
                                         <div className="mt-1 text-text">
                                             Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
@@ -846,15 +880,38 @@ function Home() {
                                 )}
                             </div>
 
-                            <ul className="mt-4 grid grid-cols-2 gap-3 text-xs text-muted sm:grid-cols-3">
-                                <li>Band 1 · 0.75–1.10 µm · D1</li>
-                                <li>Band 2 · 1.10–1.60 µm · D2</li>
-                                <li>Band 3 · 1.60–2.40 µm · D3</li>
-                                <li>Band 4 · 2.40–3.80 µm · D4</li>
-                                <li>Band 5 · 3.80–4.40 µm · D5</li>
-                                <li>Band 6 · 4.40–5.00 µm · D6</li>
-                            </ul>
-                            <p className="mt-4 text-xs text-muted">Sample spectrum for design review. Click a different sky position to compare illustrative measurements.</p>
+                            <div className="mt-4 border-t border-border pt-4">
+                                {bandGroups.length > 0 ? (
+                                    <ul className="grid grid-cols-2 gap-x-3 gap-y-4 text-xs text-muted sm:grid-cols-3">
+                                        {bandGroups.map((b) => (
+                                            <li
+                                                key={b.name}
+                                                className="flex items-start gap-2"
+                                                title={`${b.count} points${b.noisy ? `, ${b.noisy} noisy / defective` : ""}`}
+                                            >
+                                                <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: b.color }} />
+                                                <div>
+                                                    <div className="text-text">{b.name}</div>
+                                                    <div className="mt-1">{b.wMin.toFixed(2)}–{b.wMax.toFixed(2)} µm{b.code ? ` · ${b.code}` : ""}</div>
+                                                </div>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-xs text-muted">No measured bands for this pixel.</p>
+                                )}
+
+                                <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted">
+                                    <span className="flex items-center gap-2">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                                            <circle cx="7" cy="7" r="4" stroke={NOISY_COLOR} strokeWidth="1" />
+                                            <line x1="2" y1="12" x2="12" y2="2" stroke={NOISY_COLOR} strokeWidth="1" strokeLinecap="round" />
+                                        </svg>
+                                        Flagged measurement
+                                    </span>
+                                    <span className="text-right">Molecular regions are reference intervals, not detections.</span>
+                                </div>
+                            </div>
                         </section>
                     </div>
                 </main>

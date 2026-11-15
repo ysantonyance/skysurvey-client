@@ -11,7 +11,7 @@ async function enableMocking() {
         const { worker } = await import('./mocks/browser');
         await worker.start({ onUnhandledRequest: 'bypass' });
     } catch (err) {
-        console.warn('MSW не запустився:', err);
+        console.warn('MSW did not start:', err);
     }
 }
 
