@@ -10,16 +10,19 @@ export function Select({
                            defaultValue,
                            onValueChange,
                            disabled = false,
-                           className = "",
+                           className = "", info
                        }) {
     const id = useId();
 
     return (
         <div className={`flex flex-col gap-1 ${className}`}>
             {label && (
-                <label htmlFor={id} className="text-xs text-muted">
-                    {label}
-                </label>
+                <div className="flex items-center gap-1">
+                    <label htmlFor={id} className="text-xs text-muted">
+                        {label}
+                    </label>
+                    {info}
+                </div>
             )}
 
             <RadixSelect.Root

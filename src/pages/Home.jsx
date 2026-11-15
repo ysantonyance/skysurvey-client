@@ -1,17 +1,24 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { Check, Share2, CheckCheck, Code, X, Copy } from "lucide-react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import { Check, TriangleAlert  } from "lucide-react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { Select } from "../components/Select.jsx";
+import { Footer } from "../components/Footer.jsx";
 
 const API = import.meta.env.API_URL || import.meta.env.VITE_API_URL;
 
 const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
 
 const CENTER = { ra: 269.4485, dec: 4.7394, fov: 0.1 };
+
 const NOISY_SNR = 1;
+
+// Цвет шумных / дефектных точек
 const NOISY_COLOR = "#A49DAF";
+
+// Подписи молекул идут в два ряда, чтобы не налезать друг на друга
 const LABEL_ROW = { CH4: 1 };
+
 const PALETTE = ["#E8D9FF", "#D2B0F8", "#B99BEB", "#D29BD2", "#B7A7EE", "#DAB5E7"];
 
 const PRESETS = [
@@ -33,12 +40,6 @@ const CLASS_LABEL = {
     no_detection: "No detection",
     unknown: "Unknown",
 };
-
-function Badge({ children }) {
-    return (
-        <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
-    );
-}
 
 function Checkbox({ label, ...rest }) {
     return (
@@ -74,22 +75,33 @@ function pixelToRaDec(pixelX, pixelY, wcs) {
     return { ra: Number(ra.toFixed(6)), dec: Number(dec.toFixed(6)) };
 }
 
-function Home() {
-    const isEmbed = typeof window !== "undefined" && window.location.pathname.includes("/embed");
-
-    const initialParams = useMemo(() => {
-        if (typeof window === "undefined") return {};
-        const p = new URLSearchParams(window.location.search);
+function friendlyError(msg = "") {
+    if (msg.includes("No SPHEREx data")) {
         return {
-            ra: p.get("ra") || "269.4485",
-            dec: p.get("dec") || "4.7394",
-            fov: p.get("fov") || "0.10",
-            band: p.get("band") || "all",
-            tab: p.get("tab") || "Science",
+            title: "No images for this position",
+            text: "SPHEREx has not observed this part of the sky yet. Try different coordinates or one of the examples.",
         };
-    }, []);
+    }
+    if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        return {
+            title: "Can't load the sky patch",
+            text: "The data service is not responding. Check your connection and try again.",
+        };
+    }
+    if (/HTTP error: (502|503|504)/.test(msg)) {
+        return {
+            title: "The data archive is busy",
+            text: "The NASA archive did not answer in time. This is usually temporary: try again in a minute, or pick one of the examples.",
+        };
+    }
+    return {
+        title: "Something went wrong",
+        text: "We couldn't load this sky patch. Try again or choose another position.",
+    };
+}
 
-    const [tab, setTab] = useState(initialParams.tab);
+function Home() {
+    const [tab, setTab] = useState("Science");
 
     const [frameData, setFrameData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -102,12 +114,7 @@ function Home() {
     const [hoveredPoint, setHoveredPoint] = useState(null);
     const [showBands, setShowBands] = useState(true);
 
-    const [form, setForm] = useState({
-        ra: initialParams.ra,
-        dec: initialParams.dec,
-        fov: initialParams.fov,
-        band: initialParams.band
-    });
+    const [form, setForm] = useState({ ra: "269.4485", dec: "4.7394", fov: "0.10", band: "all" });
     const [query, setQuery] = useState(form);
     const [error, setError] = useState(null);
     const [progress, setProgress] = useState(null);
@@ -121,48 +128,6 @@ function Home() {
     const [pointLoading, setPointLoading] = useState(false);
     const [pointError, setPointError] = useState(false);
     const pointReqRef = useRef(0);
-
-    const [copied, setCopied] = useState(false);
-    const [showEmbedModal, setShowEmbedModal] = useState(false);
-    const [iframeCopied, setIframeCopied] = useState(false);
-
-    useEffect(() => {
-        const params = new URLSearchParams({
-            ra: form.ra,
-            dec: form.dec,
-            fov: form.fov,
-            band: form.band,
-            tab: tab,
-        });
-        const newUrl = `${window.location.pathname}?${params.toString()}`;
-        window.history.replaceState({}, "", newUrl);
-    }, [form, tab]);
-
-    const handleShare = useCallback(async () => {
-        const url = window.location.href;
-        try {
-            await navigator.clipboard.writeText(url);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2500);
-        } catch (err) {
-            prompt("Copy link manually:", url);
-        }
-    }, []);
-
-    const iframeCode = useMemo(() => {
-        const embedUrl = `${window.location.origin}/embed?ra=${form.ra}&dec=${form.dec}&fov=${form.fov}`;
-        return `<iframe src="${embedUrl}" width="500" height="500" style="border:none;" title="SPHEREx Explorer"></iframe>`;
-    }, [form]);
-
-    const handleCopyIframe = async () => {
-        try {
-            await navigator.clipboard.writeText(iframeCode);
-            setIframeCopied(true);
-            setTimeout(() => setIframeCopied(false), 2000);
-        } catch (e) {
-            prompt("Copy iframe manually:", iframeCode);
-        }
-    };
 
     const raNum = Number(form.ra);
     const decNum = Number(form.dec);
@@ -195,6 +160,7 @@ function Home() {
                 if (ctrl.signal.aborted) return;
 
                 if (data.progress) setProgress(data.progress);
+
                 if (data.status === "failed") throw new Error(data.error || "Processing failed");
                 if (data.status === "no_data") throw new Error("No SPHEREx data for this position");
 
@@ -207,6 +173,7 @@ function Home() {
                     timer = setTimeout(run, data.poll_after_ms ?? 1500);
                     return;
                 }
+
                 setProgress(null);
             } catch (err) {
                 if (err.name !== "AbortError") {
@@ -231,15 +198,45 @@ function Home() {
         setIsPlaying(false);
     }, [frameData?.target_key]);
 
+    useEffect(() => {
+        if (frameData?.status !== "ready") return;
+        const isAuto = view.cut === null && view.stretch === "asinh" && view.softness === 0.1;
+        if (isAuto) { setStretched(null); return; }
+
+        const ctrl = new AbortController();
+        const t = setTimeout(async () => {
+            try {
+                const res = await fetch(`${API}/api/v1/target/restretch`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    signal: ctrl.signal,
+                    body: JSON.stringify({
+                        ra: frameData.ra, dec: frameData.dec, fov: frameData.fov, band: frameData.band,
+                        stretch_type: view.stretch,
+                        asinh_a: Math.max(view.softness, 0.01),
+                        min_cut: view.cut?.[0] ?? null,
+                        max_cut: view.cut?.[1] ?? null,
+                    }),
+                });
+                if (!res.ok) throw new Error(`restretch ${res.status}`);
+                const json = await res.json();
+                const byIndex = {};
+                json.epochs.forEach((e) => { byIndex[e.index] = e.image; });
+                setStretched(byIndex);
+            } catch (e) {
+                if (e.name !== "AbortError") console.error(e);
+            }
+        }, 300);
+
+        return () => { clearTimeout(t); ctrl.abort(); };
+    }, [view.stretch, view.cut, view.softness, frameData?.target_key, frameData?.status]);
+
     const frames = useMemo(
         () => (frameData?.epochs ?? []).map((e) => e.layers?.image).filter(Boolean),
         [frameData]
     );
     const totalFrames = frames.length;
     const epoch = frameData?.epochs?.[currentIndex];
-
-    const isSimulated = Boolean(frameData?.is_simulation || epoch?.is_simulated);
-
     const layerUrl = {
         "Science": epoch?.layers?.image,
         "IR color": epoch?.layers?.rgb,
@@ -248,6 +245,7 @@ function Home() {
         "Noise": epoch?.layers?.variance,
     }[tab];
     const baseUrl = tab === "Science" && stretched?.[epoch?.index] ? stretched[epoch.index] : layerUrl;
+    const preloadedImagesRef = useRef([]);
 
     const disp = frameData?.display;
     const W = disp?.width ?? 512;
@@ -259,10 +257,20 @@ function Home() {
     const minorPlanets = epoch?.known_minor_planets ?? [];
 
     useEffect(() => {
+        preloadedImagesRef.current = frames.map((src) => {
+            const img = new Image();
+            img.src = src;
+            return img;
+        });
+    }, [frames]);
+
+    useEffect(() => {
         if (!isPlaying || totalFrames <= 1) return;
+
         const timer = setInterval(() => {
-            setCurrentIndex((prev) => (prev + 1) % totalFrames);
+            setCurrentIndex((prevIndex) => (prevIndex + 1) % totalFrames);
         }, intervalMs);
+
         return () => clearInterval(timer);
     }, [isPlaying, intervalMs, totalFrames]);
 
@@ -313,7 +321,12 @@ function Home() {
             });
     };
 
-    const rawPoints = pointData?.chart_data ?? frameData?.spectrum_data?.chart_data ?? frameData?.spectrum?.points ?? [];
+    const rawPoints =
+        pointData?.chart_data ??
+        frameData?.spectrum_data?.chart_data ??
+        frameData?.spectrum?.points ??
+        [];
+
     const rawSpectrum = rawPoints
         .filter((p) => p.flux !== null && p.flux !== undefined)
         .map((p) => {
@@ -330,7 +343,10 @@ function Home() {
         });
 
     const noisyCount = rawSpectrum.filter((p) => p.is_noisy).length;
-    const spectrumPoints = rawSpectrum.filter((p) => !(hideNoisy && p.is_noisy)).sort((a, b) => a.wavelength - b.wavelength);
+
+    const spectrumPoints = rawSpectrum
+        .filter((p) => !(hideNoisy && p.is_noisy))
+        .sort((a, b) => a.wavelength - b.wavelength);
 
     const minWavelength = 0.75;
     const maxWavelength = 5.0;
@@ -369,6 +385,7 @@ function Home() {
         return null;
     };
     const bands = findBands(frameData) ?? [];
+
     const sub = (s) => s.replace(/\d/g, (d) => "₀₁₂₃₄₅₆₇₈₉"[d]);
 
     const bandGroups = (() => {
@@ -399,31 +416,12 @@ function Home() {
     const shownDec = Number(selected?.dec ?? frameData?.dec ?? CENTER.dec).toFixed(6);
     const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
 
-    if (isEmbed) {
-        return (
-            <div className="flex flex-col h-screen bg-bg p-3 text-text select-none">
-                <div className="flex justify-between items-center mb-2 text-xs">
-                    <span className="font-medium text-accent">SPHEREx Sky Explorer</span>
-                    <a href="/" target="_blank" rel="noreferrer" className="text-muted underline hover:text-text">
-                        Open explorer ↗
-                    </a>
-                </div>
-                <div className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface flex-1">
-                    {loading ? (
-                        <div className="flex h-full items-center justify-center text-xs text-muted">Loading...</div>
-                    ) : (
-                        baseUrl && <img src={baseUrl} alt="Embedded view" className="h-full w-full object-cover" />
-                    )}
-                </div>
-            </div>
-        );
-    }
-
     return (
-        <div className="flex min-h-screen flex-col bg-bg text-text">
+        <div className="bg-bg text-text">
+        <div className="flex min-h-screen flex-col lg:h-screen">
             <Header />
 
-            <div className="grid flex-1 grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
                 <Sidebar
                     form={form}
                     onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
@@ -440,57 +438,13 @@ function Home() {
                     autoCut={frameData?.display ? [frameData.display.stretch.vmin, frameData.display.stretch.vmax] : null}
                 />
 
-                <main className="min-w-0 p-3 sm:p-4">
-                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                <main className="min-w-0 p-4 lg:overflow-y-auto">
+                    <div className="flex flex-col justify-between gap-1 sm:flex-row">
                         <div>
-                            <h1 className="text-base font-medium">Sky position &amp; spectrum</h1>
+                            <h1 className="text-base">Sky position &amp; spectrum</h1>
                             <p className="text-xs text-muted">RA {shownRa}° / Dec {shownDec}° · {shownFov}° field</p>
                         </div>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                            <button
-                                onClick={handleShare}
-                                className="flex items-center gap-1.5 rounded-sm border border-accent/40 bg-accent/15 px-3 py-1.5 text-xs text-accent transition hover:bg-accent/25 cursor-pointer"
-                            >
-                                {copied ? <CheckCheck size={14} /> : <Share2 size={14} />}
-                                {copied ? "Link copied!" : "Share view"}
-                            </button>
-
-                            <button
-                                onClick={() => setShowEmbedModal(true)}
-                                className="flex items-center gap-1.5 rounded-sm border border-border bg-surface px-3 py-1.5 text-xs text-text transition hover:bg-raised cursor-pointer"
-                            >
-                                <Code size={14} />
-                                Embed
-                            </button>
-                        </div>
                     </div>
-
-                    {showEmbedModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
-                            <div className="w-full max-w-lg rounded-sm border border-border bg-surface p-5 shadow-2xl">
-                                <div className="flex items-center justify-between pb-3 border-b border-border">
-                                    <h3 className="text-sm font-medium">Embed explorer view</h3>
-                                    <button onClick={() => setShowEmbedModal(false)} className="text-muted hover:text-text cursor-pointer">
-                                        <X size={16} />
-                                    </button>
-                                </div>
-                                <p className="mt-3 text-xs text-muted">Copy this HTML code to embed the interactive viewer into your site or documentation:</p>
-                                <div className="mt-3 relative rounded-sm bg-bg border border-border p-3 font-mono text-[11px] text-text break-all select-all">
-                                    {iframeCode}
-                                </div>
-                                <div className="mt-4 flex justify-end gap-2">
-                                    <button
-                                        onClick={handleCopyIframe}
-                                        className="flex items-center gap-1.5 rounded-sm bg-accent px-4 py-2 text-xs text-bg font-medium hover:bg-accent-hover cursor-pointer"
-                                    >
-                                        {iframeCopied ? <Check size={14} /> : <Copy size={14} />}
-                                        {iframeCopied ? "Copied to clipboard!" : "Copy HTML code"}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
 
                     <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] items-start">
                         <section aria-label="Sky image" className="flex min-w-0 flex-col gap-3">
@@ -508,14 +462,14 @@ function Home() {
                                 )}
                             </div>
 
-                            <div role="tablist" className="flex flex-wrap gap-1 text-xs">
+                            <div role="tablist" className="flex gap-1 text-xs">
                                 {TABS.map((t) => (
                                     <button
                                         key={t}
                                         role="tab"
                                         aria-selected={tab === t}
                                         onClick={() => setTab(t)}
-                                        className={`h-8 flex-1 min-w-[70px] rounded-sm border px-2 transition-hover ${
+                                        className={`h-8 flex-1 rounded-sm border px-2 transition-hover ${
                                             tab === t ? "border-accent bg-accent/15" : "border-transparent text-muted hover:bg-raised"
                                         }`}
                                     >
@@ -524,18 +478,30 @@ function Home() {
                                 ))}
                             </div>
 
-                            {error && <p className="text-xs text-error">Backend error: {error}</p>}
+                            {error && (() => {
+                                const e = friendlyError(error);
+                                return (
+                                    <div role="alert" className="flex items-start gap-3 rounded-sm border border-error/40 bg-error/10 p-3 text-xs">
+                                        <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden />
+                                        <div className="flex-1">
+                                            <p className="text-error">{e.title}</p>
+                                            <p className="mt-1 text-muted">{e.text}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuery({ ...query })}
+                                            className="h-8 shrink-0 cursor-pointer rounded-sm border border-border px-3 text-text transition-hover hover:bg-raised"
+                                        >
+                                            Try again
+                                        </button>
+                                    </div>
+                                );
+                            })()}
 
                             <div
                                 onClick={handleImageClick}
                                 className="relative aspect-square w-full overflow-hidden rounded-sm border border-border bg-surface cursor-crosshair"
                             >
-                                {isSimulated && (
-                                    <div className="absolute top-2 right-2 z-20 rounded-sm bg-black/70 border border-warning/40 px-2 py-1 text-[10px] text-warning backdrop-blur-sm pointer-events-none">
-                                        Simulation · not mission data
-                                    </div>
-                                )}
-
                                 {loading ? (
                                     <div className="flex h-full items-center justify-center text-xs text-muted">
                                         Loading sky patch...
@@ -602,7 +568,7 @@ function Home() {
                                     </svg>
                                 </div>
 
-                                <div className="absolute bottom-5 right-5 px-2 py-1 pointer-events-none">
+                                <div className="absolute bottom-2 right-2 px-2 py-1 pointer-events-none">
                                     <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                                         <path d="M0 31.5H31.5V0" stroke="#D5B6FF" strokeWidth="1.5"/>
                                     </svg>
@@ -614,13 +580,6 @@ function Home() {
                                         style={{ left: `${selected.fx * 100}%`, top: `${selected.fy * 100}%` }}
                                     />
                                 )}
-                            </div>
-
-                            <p className="text-xs text-muted">Click the image to load the spectrum for that position.</p>
-
-                            <div className="flex items-center justify-between text-xs text-muted">
-                                <span>− &nbsp; 100% &nbsp; +</span>
-                                <span>Wheel to zoom · Drag to pan</span>
                             </div>
 
                             <div className="flex flex-wrap items-center justify-between gap-3 mt-2">
@@ -696,7 +655,7 @@ function Home() {
                                 />
                             </div>
 
-                            <div className="flex flex-wrap gap-2 mt-2">
+                            <div className="flex gap-2 mt-2">
                                 {frameData?.epochs ? (
                                     frameData.epochs.map((ep, i) => (
                                         <button
@@ -705,7 +664,7 @@ function Home() {
                                                 setIsPlaying(false);
                                                 setCurrentIndex(i);
                                             }}
-                                            className={`h-10 flex-1 min-w-[70px] rounded-sm border px-2 text-xs transition-hover cursor-pointer ${
+                                            className={`h-10 rounded-sm border px-4 text-xs transition-hover cursor-pointer ${
                                                 currentIndex === i ? "border-accent bg-accent/15 text-accent" : "border-border hover:bg-raised text-muted"
                                             }`}
                                         >
@@ -723,10 +682,10 @@ function Home() {
                             </p>
                         </section>
 
+                        {/* Блок спектра со свойством self-start, чтобы он не растягивался на всю высоту родителя */}
                         <section aria-label="Object spectrum" className="min-w-0 rounded-sm border border-border bg-surface p-4 flex flex-col self-start">
                             <div className="flex items-start justify-between gap-2">
                                 <h2 className="text-xl sm:text-2xl font-medium">Object spectrum</h2>
-                                <Badge>Illustrative data</Badge>
                             </div>
                             <p className="mt-2 text-xs text-muted">Sparse measurements · Vertical error bars show ± flux_error</p>
                             <p className="mt-2 text-xs text-accent">RA {shownRa}° / Dec {shownDec}°</p>
@@ -754,10 +713,10 @@ function Home() {
                                 />
                             </div>
 
-                            <div className={`relative mt-4 w-full select-none overflow-x-auto ${pointLoading ? "opacity-50" : ""}`}>
+                            <div className={`relative mt-4 w-full select-none ${pointLoading ? "opacity-50" : ""}`}>
                                 <svg
                                     viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                                    className="w-full h-auto min-w-[300px] overflow-visible"
+                                    className="w-full h-auto overflow-visible"
                                 >
                                     <rect x={padding.left} y={padding.top} width={plotWidth} height={plotHeight} className="fill-bg" />
 
@@ -790,28 +749,73 @@ function Home() {
 
                                     {yTicks.map((t) => (
                                         <g key={`grid-${t}`}>
-                                            <line x1={padding.left} y1={scaleY(t)} x2={chartWidth - padding.right} y2={scaleY(t)} stroke="currentColor" strokeOpacity={0.08} />
-                                            <text x={padding.left + 8} y={scaleY(t) + 3} textAnchor="end" className={`text-[9px] font-mono ${t === 0 ? "fill-text" : "fill-muted"}`}>
+                                            <line
+                                                x1={padding.left}
+                                                y1={scaleY(t)}
+                                                x2={chartWidth - padding.right}
+                                                y2={scaleY(t)}
+                                                stroke="currentColor"
+                                                strokeOpacity={0.08}
+                                            />
+                                            <text
+                                                x={padding.left + 8}
+                                                y={scaleY(t) + 3}
+                                                textAnchor="end"
+                                                className={`text-[9px] font-mono ${t === 0 ? "fill-text" : "fill-muted"}`}
+                                            >
                                                 {t === 0 ? "0 µJy" : fmtY(t)}
                                             </text>
                                         </g>
                                     ))}
 
                                     {minY <= 0 && maxY >= 0 && (
-                                        <line x1={padding.left} y1={scaleY(0)} x2={chartWidth - padding.right} y2={scaleY(0)} stroke="currentColor" strokeDasharray="4,4" strokeOpacity={0.7} />
+                                        <line
+                                            x1={padding.left}
+                                            y1={scaleY(0)}
+                                            x2={chartWidth - padding.right}
+                                            y2={scaleY(0)}
+                                            stroke="currentColor"
+                                            strokeDasharray="4,4"
+                                            strokeOpacity={0.7}
+                                        />
                                     )}
 
                                     {xTicks.map((w) => (
                                         <g key={`tick-${w}`}>
-                                            <line x1={scaleX(w)} y1={padding.top + plotHeight} x2={scaleX(w)} y2={padding.top + plotHeight + 4} stroke="currentColor" strokeOpacity={0.3} />
-                                            <text x={scaleX(w)} y={padding.top + plotHeight + 16} textAnchor="middle" className="text-[9px] fill-muted font-mono">
+                                            <line
+                                                x1={scaleX(w)}
+                                                y1={padding.top + plotHeight}
+                                                x2={scaleX(w)}
+                                                y2={padding.top + plotHeight + 4}
+                                                stroke="currentColor"
+                                                strokeOpacity={0.3}
+                                            />
+                                            <text
+                                                x={scaleX(w)}
+                                                y={padding.top + plotHeight + 16}
+                                                textAnchor="middle"
+                                                className="text-[9px] fill-muted font-mono"
+                                            >
                                                 {w === 0.75 ? "0.75" : w.toFixed(1)}
                                             </text>
                                         </g>
                                     ))}
 
-                                    <text x={padding.left + plotWidth / 2} y={chartHeight - 6} textAnchor="middle" className="text-[10px] fill-muted">Wavelength, µm</text>
-                                    <text transform={`translate(12 ${padding.top + plotHeight / 2}) rotate(-90)`} textAnchor="middle" className="text-[10px] fill-muted">Flux, µJy</text>
+                                    <text
+                                        x={padding.left + plotWidth / 2}
+                                        y={chartHeight - 6}
+                                        textAnchor="middle"
+                                        className="text-[10px] fill-muted"
+                                    >
+                                        Wavelength, µm
+                                    </text>
+                                    <text
+                                        transform={`translate(12 ${padding.top + plotHeight / 2}) rotate(-90)`}
+                                        textAnchor="middle"
+                                        className="text-[10px] fill-muted"
+                                    >
+                                        Flux, µJy
+                                    </text>
 
                                     {connectPoints && spectrumPoints.length > 1 && (
                                         <path
@@ -838,14 +842,42 @@ function Home() {
                                         const color = isFlagged ? NOISY_COLOR : bandCol;
 
                                         return (
-                                            <g key={`pt-${idx}`} className="cursor-pointer" onMouseEnter={() => setHoveredPoint({ ...pt, detector })} onMouseLeave={() => setHoveredPoint(null)}>
+                                            <g
+                                                key={`pt-${idx}`}
+                                                className="cursor-pointer"
+                                                onMouseEnter={() => {
+                                                    setHoveredPoint({ ...pt, detector });
+                                                }}
+                                                onMouseLeave={() => setHoveredPoint(null)}
+                                            >
                                                 <g stroke={color} strokeOpacity={0.6} strokeWidth="1">
                                                     <line x1={cx} y1={yTop} x2={cx} y2={yBottom} />
                                                     <line x1={cx - 3} y1={yTop} x2={cx + 3} y2={yTop} />
                                                     <line x1={cx - 3} y1={yBottom} x2={cx + 3} y2={yBottom} />
                                                 </g>
+
                                                 {isFlagged ? (
-                                                    <circle cx={cx} cy={cy} r={4} fill="none" stroke={NOISY_COLOR} strokeWidth="1" />
+                                                    <>
+                                                        <circle
+                                                            cx={cx}
+                                                            cy={cy}
+                                                            r={4}
+                                                            fill="none"
+                                                            stroke={NOISY_COLOR}
+                                                            strokeWidth="1"
+                                                            pointerEvents="all"
+                                                        />
+                                                        <line
+                                                            x1={cx - 6}
+                                                            y1={cy + 6}
+                                                            x2={cx + 6}
+                                                            y2={cy - 6}
+                                                            stroke={NOISY_COLOR}
+                                                            strokeWidth="1"
+                                                            strokeLinecap="round"
+                                                            className="pointer-events-none"
+                                                        />
+                                                    </>
                                                 ) : (
                                                     <circle cx={cx} cy={cy} r={4} fill={bandCol} />
                                                 )}
@@ -855,9 +887,26 @@ function Home() {
                                 </svg>
 
                                 {hoveredPoint && (
-                                    <div className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg" style={{ left: '50%', bottom: '56px' }}>
-                                        <div className="font-medium text-accent">Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm</div>
-                                        <div className="mt-1 text-text">Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy</div>
+                                    <div
+                                        className="absolute z-30 pointer-events-none -translate-x-1/2 -translate-y-full mb-2 rounded-sm border border-border bg-surface px-3 py-2 text-xs shadow-lg"
+                                        style={{ left: '50%', bottom: '56px' }}
+                                    >
+                                        <div className="font-medium text-accent">
+                                            Wavelength: {hoveredPoint.wavelength.toFixed(3)} µm ({hoveredPoint.band}{hoveredPoint.detector?.code ? `, ${hoveredPoint.detector.code}` : ""})
+                                        </div>
+                                        <div className="mt-1 text-text">
+                                            Flux: {hoveredPoint.flux.toFixed(1)} ± {(hoveredPoint.flux_error ?? 0).toFixed(1)} µJy
+                                        </div>
+                                        <div className="text-muted">
+                                            Signal-to-noise ratio: SNR: {(hoveredPoint.snr ?? 0).toFixed(2)}
+                                        </div>
+                                        {hoveredPoint.is_noisy && (
+                                            <div className="mt-1 text-rose-400 font-medium">
+                                                ⚠ Warning: {hoveredPoint.is_flagged
+                                                ? "point is flagged as noisy / defective (is_flagged: true)."
+                                                : `low signal-to-noise (SNR < ${NOISY_SNR}), large uncertainty.`}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -866,11 +915,15 @@ function Home() {
                                 {bandGroups.length > 0 ? (
                                     <ul className="grid grid-cols-2 gap-x-3 gap-y-4 text-xs text-muted sm:grid-cols-3">
                                         {bandGroups.map((b) => (
-                                            <li key={b.name} className="flex items-start gap-2">
+                                            <li
+                                                key={b.name}
+                                                className="flex items-start gap-2"
+                                                title={`${b.count} points${b.noisy ? `, ${b.noisy} noisy / defective` : ""}`}
+                                            >
                                                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: b.color }} />
                                                 <div>
                                                     <div className="text-text">{b.name}</div>
-                                                    <div className="mt-1">{b.wMin.toFixed(2)}–{b.wMax.toFixed(2)} µm</div>
+                                                    <div className="mt-1">{b.wMin.toFixed(2)}–{b.wMax.toFixed(2)} µm{b.code ? ` · ${b.code}` : ""}</div>
                                                 </div>
                                             </li>
                                         ))}
@@ -878,11 +931,24 @@ function Home() {
                                 ) : (
                                     <p className="text-xs text-muted">No measured bands for this pixel.</p>
                                 )}
+
+                                <div className="mt-5 flex items-center justify-between gap-3 text-xs text-muted">
+                                    <span className="flex items-center gap-2">
+                                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                                            <circle cx="7" cy="7" r="4" stroke={NOISY_COLOR} strokeWidth="1" />
+                                            <line x1="2" y1="12" x2="12" y2="2" stroke={NOISY_COLOR} strokeWidth="1" strokeLinecap="round" />
+                                        </svg>
+                                        Flagged measurement
+                                    </span>
+                                    <span className="text-right">Molecular regions are reference intervals, not detections.</span>
+                                </div>
                             </div>
                         </section>
                     </div>
                 </main>
             </div>
+        </div>
+            <Footer />
         </div>
     );
 }
