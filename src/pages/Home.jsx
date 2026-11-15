@@ -4,7 +4,7 @@ import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { Select } from "../components/Select.jsx";
 
-const API = import.meta.env.API_URL || "http://127.0.0.1:8000";
+const API = import.meta.env.API_URL || import.meta.env.VITE_API_URL;
 
 const TABS = ["Science", "IR color", "Difference", "Deep stack", "Noise"];
 
