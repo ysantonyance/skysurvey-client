@@ -3,6 +3,7 @@ import { Check } from "lucide-react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { Select } from "../components/Select.jsx";
+import { Footer } from "../components/Footer.jsx";
 
 const API = import.meta.env.API_URL || "http://127.0.0.1:8000";
 
@@ -39,12 +40,6 @@ const CLASS_LABEL = {
     no_detection: "No detection",
     unknown: "Unknown",
 };
-
-function Badge({ children }) {
-    return (
-        <span className="rounded-sm border border-accent/40 bg-accent/15 px-2 py-1 text-xs">{children}</span>
-    );
-}
 
 function Checkbox({ label, ...rest }) {
     return (
@@ -397,7 +392,8 @@ function Home() {
     const shownFov = Number(frameData?.fov ?? CENTER.fov).toFixed(2);
 
     return (
-        <div className="flex min-h-screen flex-col bg-bg text-text lg:h-screen lg:overflow-hidden">
+        <div className="bg-bg text-text">
+        <div className="flex min-h-screen flex-col lg:h-screen">
             <Header />
 
             <div className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -908,6 +904,8 @@ function Home() {
                     </div>
                 </main>
             </div>
+        </div>
+            <Footer />
         </div>
     );
 }
