@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Check } from "lucide-react";
+import { Check, TriangleAlert  } from "lucide-react";
 import { Header } from "../components/Header.jsx";
 import { Sidebar } from "../components/Sidebar.jsx";
 import { Select } from "../components/Select.jsx";
@@ -73,6 +73,31 @@ function pixelToRaDec(pixelX, pixelY, wcs) {
     const ra = (crval1 + (dx * cdelt1) / cosDec + 360.0) % 360.0;
 
     return { ra: Number(ra.toFixed(6)), dec: Number(dec.toFixed(6)) };
+}
+
+function friendlyError(msg = "") {
+    if (msg.includes("No SPHEREx data")) {
+        return {
+            title: "No images for this position",
+            text: "SPHEREx has not observed this part of the sky yet. Try different coordinates or one of the examples.",
+        };
+    }
+    if (msg.includes("Failed to fetch") || msg.includes("NetworkError")) {
+        return {
+            title: "Can't load the sky patch",
+            text: "The data service is not responding. Check your connection and try again.",
+        };
+    }
+    if (/HTTP error: (502|503|504)/.test(msg)) {
+        return {
+            title: "The data archive is busy",
+            text: "The NASA archive did not answer in time. This is usually temporary: try again in a minute, or pick one of the examples.",
+        };
+    }
+    return {
+        title: "Something went wrong",
+        text: "We couldn't load this sky patch. Try again or choose another position.",
+    };
 }
 
 function Home() {
@@ -453,7 +478,25 @@ function Home() {
                                 ))}
                             </div>
 
-                            {error && <p className="text-xs text-error">Backend error: {error}</p>}
+                            {error && (() => {
+                                const e = friendlyError(error);
+                                return (
+                                    <div role="alert" className="flex items-start gap-3 rounded-sm border border-error/40 bg-error/10 p-3 text-xs">
+                                        <TriangleAlert size={16} className="mt-0.5 shrink-0 text-error" aria-hidden />
+                                        <div className="flex-1">
+                                            <p className="text-error">{e.title}</p>
+                                            <p className="mt-1 text-muted">{e.text}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setQuery({ ...query })}
+                                            className="h-8 shrink-0 cursor-pointer rounded-sm border border-border px-3 text-text transition-hover hover:bg-raised"
+                                        >
+                                            Try again
+                                        </button>
+                                    </div>
+                                );
+                            })()}
 
                             <div
                                 onClick={handleImageClick}
